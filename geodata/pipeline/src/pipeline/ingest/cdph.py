@@ -149,25 +149,45 @@ def upsert(df: pd.DataFrame) -> tuple[int, int]:
     return inserted, updated
 
 
+def _str(val: object) -> "str | None":
+    """Convert a pandas value to str, returning None for NA/NaN/empty."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    return None if s in ("", "nan", "NaT", "None") else s
+
+
+def _date(val: object) -> "date | None":
+    """Return a date or None, swallowing NaT and other NA sentinels."""
+    if val is None or val is pd.NaT:
+        return None
+    try:
+        if hasattr(val, "date"):
+            return val.date()  # type: ignore[return-value]
+        return val  # type: ignore[return-value]
+    except Exception:
+        return None
+
+
 def _apply_row(facility: Facility, row: "pd.Series") -> None:  # type: ignore[type-arg]
     facility.cdph_id = row["cdph_id"]
-    facility.name = row["name"] or "Unknown"
+    facility.name = _str(row["name"]) or "Unknown"
     facility.type = row["type"]
-    facility.address = row.get("address")
-    facility.city = row.get("city")
-    facility.county = row.get("county")
+    facility.address = _str(row.get("address"))
+    facility.city = _str(row.get("city"))
+    facility.county = _str(row.get("county"))
     facility.state = "CA"
-    facility.zip = row.get("zip")
-    facility.phone = row.get("phone") or None
-    facility.license_status = row.get("license_status")
-    facility.license_number = row.get("license_number")
-    facility.license_expiry = row.get("license_expiry") or None
+    facility.zip = _str(row.get("zip"))
+    facility.phone = None
+    facility.license_status = _str(row.get("license_status"))
+    facility.license_number = _str(row.get("license_number"))
+    facility.license_expiry = _date(row.get("license_expiry"))
     facility.lat = row.get("lat") or None
     facility.lon = row.get("lon") or None
-    # Set NPI from CDPH CSV if present (crosswalk resolver may later enrich this)
-    npi = row.get("cms_npi")
-    if npi and str(npi).strip():
-        facility.cms_npi = str(npi).strip()
+    # Set NPI from CDPH CSV if present (crosswalk resolver may later enrich)
+    npi = _str(row.get("cms_npi"))
+    if npi:
+        facility.cms_npi = npi
     facility.primary_source = "cdph"
     facility.last_verified = row.get("last_verified")
 

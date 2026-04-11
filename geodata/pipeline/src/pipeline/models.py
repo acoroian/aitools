@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     Double,
     Float,
+    ForeignKey,
     Integer,
     SmallInteger,
     String,
@@ -46,11 +47,12 @@ class Facility(Base):
     lon: Mapped[Optional[float]] = mapped_column(Double)
     geom: Mapped[Optional[object]] = mapped_column(Geometry("POINT", srid=4326))
 
-    # Source IDs
+    # Source IDs — only cdph_id is unique; NPI/OSHPD/CDSS can appear on
+    # multiple CDPH records (e.g. satellite locations sharing an NPI)
     cdph_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
-    cms_npi: Mapped[Optional[str]] = mapped_column(Text, unique=True)
-    oshpd_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
-    cdss_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    cms_npi: Mapped[Optional[str]] = mapped_column(Text)
+    oshpd_id: Mapped[Optional[str]] = mapped_column(Text)
+    cdss_id: Mapped[Optional[str]] = mapped_column(Text)
 
     # License info
     license_status: Mapped[Optional[str]] = mapped_column(Text)
@@ -77,7 +79,7 @@ class FacilityFinancial(Base):
     __table_args__ = (UniqueConstraint("facility_id", "year", "source"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    facility_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    facility_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("facilities.id"), nullable=False)
     year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -100,7 +102,7 @@ class FacilityViolation(Base):
     __tablename__ = "facility_violations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    facility_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    facility_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("facilities.id"), nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False)
     survey_date: Mapped[Optional[date]] = mapped_column(Date)
     deficiency_tag: Mapped[Optional[str]] = mapped_column(Text)

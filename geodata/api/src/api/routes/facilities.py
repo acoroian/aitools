@@ -138,9 +138,13 @@ def filter_facilities(
 
     rows = db.execute(query, params).fetchall()
 
+    # Column order: id(0) name(1) type(2) subtype(3) address(4) city(5)
+    # county(6) zip(7) license_status(8) certified_medicare(9)
+    # certified_medicaid(10) lat(11) lon(12) gross_revenue(13)
+    # revenue_year(14) violation_count(15) last_violation(16)
     features = [
         GeoJSONFeature(
-            geometry={"type": "Point", "coordinates": [r[13], r[12]]} if r[12] and r[13] else {"type": "Point", "coordinates": []},  # lon, lat
+            geometry={"type": "Point", "coordinates": [r[12], r[11]]},  # [lon, lat]
             properties={
                 "id": r[0],
                 "name": r[1],
@@ -160,7 +164,7 @@ def filter_facilities(
             },
         )
         for r in rows
-        if r[12] and r[13]  # skip features with no coordinates
+        if r[11] and r[12]  # skip features with no coordinates (lat, lon)
     ]
 
     return GeoJSONFeatureCollection(features=features, total=len(features))

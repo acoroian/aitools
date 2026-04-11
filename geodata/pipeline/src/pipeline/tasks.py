@@ -47,6 +47,45 @@ def generate_tiles(self, layer_slug: str):  # type: ignore[no-untyped-def]
         raise self.retry(exc=exc)
 
 
+@app.task(bind=True, max_retries=2, default_retry_delay=600, name="pipeline.tasks.ingest_hcris_hha")
+def ingest_hcris_hha(self):  # type: ignore[no-untyped-def]
+    """Download and upsert CMS HCRIS Home Health Agency cost reports."""
+    try:
+        from pipeline.ingest.hcris import run
+        result = run("hha")
+        log.info("HCRIS HHA ingest complete: %s", result)
+        return result
+    except Exception as exc:
+        log.exception("HCRIS HHA ingest failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(bind=True, max_retries=2, default_retry_delay=600, name="pipeline.tasks.ingest_hcris_hospice")
+def ingest_hcris_hospice(self):  # type: ignore[no-untyped-def]
+    """Download and upsert CMS HCRIS Hospice cost reports."""
+    try:
+        from pipeline.ingest.hcris import run
+        result = run("hospice")
+        log.info("HCRIS Hospice ingest complete: %s", result)
+        return result
+    except Exception as exc:
+        log.exception("HCRIS Hospice ingest failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(bind=True, max_retries=2, default_retry_delay=600, name="pipeline.tasks.ingest_hcai")
+def ingest_hcai(self):  # type: ignore[no-untyped-def]
+    """Download and upsert CA HCAI annual SNF financial disclosure data."""
+    try:
+        from pipeline.ingest.hcai import run
+        result = run()
+        log.info("HCAI ingest complete: %s", result)
+        return result
+    except Exception as exc:
+        log.exception("HCAI ingest failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
 @app.task(name="pipeline.tasks.generate_all_tiles")
 def generate_all_tiles():  # type: ignore[no-untyped-def]
     """Regenerate PMTiles for all known layers."""

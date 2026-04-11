@@ -47,10 +47,11 @@ class Facility(Base):
     lon: Mapped[Optional[float]] = mapped_column(Double)
     geom: Mapped[Optional[object]] = mapped_column(Geometry("POINT", srid=4326))
 
-    # Source IDs — only cdph_id is unique; NPI/OSHPD/CDSS can appear on
+    # Source IDs — only cdph_id is unique; NPI/OSHPD/CDSS/CCN can appear on
     # multiple CDPH records (e.g. satellite locations sharing an NPI)
     cdph_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
     cms_npi: Mapped[Optional[str]] = mapped_column(Text)
+    ccn: Mapped[Optional[str]] = mapped_column(Text)        # CMS Certification Number
     oshpd_id: Mapped[Optional[str]] = mapped_column(Text)
     cdss_id: Mapped[Optional[str]] = mapped_column(Text)
 

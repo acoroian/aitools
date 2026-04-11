@@ -184,10 +184,13 @@ def _apply_row(facility: Facility, row: "pd.Series") -> None:  # type: ignore[ty
     facility.license_expiry = _date(row.get("license_expiry"))
     facility.lat = row.get("lat") or None
     facility.lon = row.get("lon") or None
-    # Set NPI from CDPH CSV if present (crosswalk resolver may later enrich)
+    # Set NPI and CCN from CDPH CSV if present
     npi = _str(row.get("cms_npi"))
     if npi:
         facility.cms_npi = npi
+    ccn = _str(row.get("ccn"))
+    if ccn:
+        facility.ccn = ccn
     facility.primary_source = "cdph"
     facility.last_verified = row.get("last_verified")
 

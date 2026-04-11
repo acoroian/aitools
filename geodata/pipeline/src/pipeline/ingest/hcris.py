@@ -71,21 +71,30 @@ class RevenueSpec:
     scale: int = 1      # multiply raw value by this (some forms report in $1000s)
 
 
-# Revenue lines to extract per provider type
+# Revenue lines to extract per provider type.
+# CLMN_NUM is 5 digits in the actual files (e.g. "00100", "00200").
 REVENUE_SPECS: dict[ProviderType, list[RevenueSpec]] = {
     "hha": [
-        RevenueSpec("S700000", "00100", "0200", "gross_revenue"),
-        RevenueSpec("S700000", "00100", "0100", "medicare_revenue"),
-        RevenueSpec("S700000", "00200", "0200", "medicaid_revenue"),
-        RevenueSpec("S700000", "00400", "0200", "net_revenue"),
-        RevenueSpec("S600000", "00200", "0100", "total_visits"),
+        # Form 1728-20 (verified against HHA20_2022_nmrc.csv):
+        # F000000 = Worksheet F, Statement of Revenues
+        #   Line 03200 col 00100 = Total Revenue (gross)
+        #   Line 03100 col 00100 = Total Operating Revenue (net-ish)
+        # F100000 = Worksheet F Part I (Medicare Settlement)
+        #   Line 00400 col 00200 = Total Medicare revenue after settlement
+        RevenueSpec("F000000", "03200", "00100", "gross_revenue"),
+        RevenueSpec("F000000", "03100", "00100", "net_revenue"),
+        RevenueSpec("F100000", "00400", "00200", "medicare_revenue"),
     ],
     "hospice": [
-        RevenueSpec("S300000", "00100", "0200", "gross_revenue"),
-        RevenueSpec("S300000", "00100", "0100", "medicare_revenue"),
-        RevenueSpec("S300000", "00200", "0200", "medicaid_revenue"),
-        RevenueSpec("S300000", "00400", "0200", "net_revenue"),
-        RevenueSpec("S200000", "00100", "0100", "total_patients"),
+        # F100000 = Worksheet F-1 (Medicare Settlement — Revenue)
+        # Line 00300 col 00100 = Total Medicare + other revenue
+        # Line 00100 col 00100 = Medicare routine charges
+        # Line 00200 col 00100 = Non-Medicare charges
+        # C000000 line 01000 col 00100 = total days (proxy for patients served)
+        RevenueSpec("F100000", "00300", "00100", "gross_revenue"),
+        RevenueSpec("F100000", "00100", "00100", "medicare_revenue"),
+        RevenueSpec("F100000", "00200", "00100", "net_revenue"),
+        RevenueSpec("C000000", "01000", "00100", "total_patients"),
     ],
 }
 
@@ -108,15 +117,27 @@ def _find_csv(zf: zipfile.ZipFile, suffix: str) -> str | None:
 
 
 def _parse_rpt(zf: zipfile.ZipFile, rpt_name: str) -> pd.DataFrame:
-    """Parse the RPT file → DataFrame with REPT_REC_NUM, PRVDR_NUM, FY_END_DT."""
+    """Parse the RPT file → DataFrame with REPT_REC_NUM, PRVDR_NUM, FY_END_DT.
+
+    HCRIS RPT files have NO header row. Across forms, only these columns are
+    guaranteed at fixed positions:
+      0  REPT_REC_NUM   2  PRVDR_NUM (CCN)   4  RPT_STUS_CD   6  FY_END_DT
+
+    Hospice (Form 1984-14) = 15 cols, HHA (Form 1728-20) = 18 cols.
+    We read only the indices we need so the parser works for both.
+    """
     log.info("Parsing RPT file: %s", rpt_name)
     with zf.open(rpt_name) as f:
-        df = pd.read_csv(f, dtype=str, low_memory=False)
-    df.columns = [c.strip().upper() for c in df.columns]
+        df = pd.read_csv(
+            f, dtype=str, low_memory=False, header=None,
+            usecols=[0, 2, 4, 6],
+            names=["REPT_REC_NUM", "PRVDR_NUM", "RPT_STUS_CD", "FY_END_DT"],
+        )
 
-    # Keep only settled/final reports (ignore tentative/in-progress)
-    if "NPT_STUS" in df.columns:
-        df = df[df["NPT_STUS"].isin(["F", "S", "As Submitted"])]
+    # Keep settled/final/amended reports only (drop unsubmitted draft rows).
+    # RPT_STUS_CD: 1=As Submitted, 2=Settled w/o Audit, 3=Settled w/ Audit,
+    # 4=Reopened, 5=Amended. Hospice files sometimes use letter codes F/S too.
+    df = df[df["RPT_STUS_CD"].isin(["1", "2", "3", "4", "5", "F", "S"])]
 
     df["FY_END_DT"] = pd.to_datetime(df["FY_END_DT"], errors="coerce")
     df["fy_year"] = df["FY_END_DT"].dt.year.astype("Int64")
@@ -145,19 +166,21 @@ def _parse_nmrc_for_specs(
     collected: list[dict] = []
     chunk_size = 200_000
 
+    nmrc_cols = ["REPT_REC_NUM", "WKST_CD", "LINE_NUM", "CLMN_NUM", "ITM_VAL_NUM"]
     with zf.open(nmrc_name) as f:
-        for chunk in pd.read_csv(f, dtype=str, low_memory=False, chunksize=chunk_size):
-            chunk.columns = [c.strip().upper() for c in chunk.columns]
-
+        for chunk in pd.read_csv(
+            f, dtype=str, low_memory=False, chunksize=chunk_size,
+            header=None, names=nmrc_cols,
+        ):
             # Filter to relevant report IDs first (big reduction)
             chunk = chunk[chunk["REPT_REC_NUM"].isin(valid_rpt_nums)]
             if chunk.empty:
                 continue
 
-            # Normalise coordinate columns (strip whitespace, zero-pad if needed)
+            # Normalise coordinate columns — all are 5-digit zero-padded
             chunk["WKST_CD"] = chunk["WKST_CD"].str.strip()
             chunk["LINE_NUM"] = chunk["LINE_NUM"].str.strip().str.zfill(5)
-            chunk["CLMN_NUM"] = chunk["CLMN_NUM"].str.strip().str.zfill(4)
+            chunk["CLMN_NUM"] = chunk["CLMN_NUM"].str.strip().str.zfill(5)
 
             # Keep only rows matching our specs
             mask = chunk.apply(
@@ -206,8 +229,9 @@ def run(provider_type: ProviderType) -> dict[str, int]:
     with zipfile.ZipFile(io.BytesIO(raw)) as zf:
         log.info("ZIP contents: %s", zf.namelist())
 
-        rpt_name = _find_csv(zf, "rpt")
-        nmrc_name = _find_csv(zf, "nmrc")
+        year = settings.hcris_year
+        rpt_name = _find_csv(zf, f"_{year}_rpt") or _find_csv(zf, "rpt")
+        nmrc_name = _find_csv(zf, f"_{year}_nmrc") or _find_csv(zf, "nmrc")
 
         if not rpt_name or not nmrc_name:
             raise FileNotFoundError(
@@ -254,6 +278,11 @@ def run(provider_type: ProviderType) -> dict[str, int]:
 
     # Join with RPT to get CCN + year
     merged = rpt_df.merge(pivoted, on="REPT_REC_NUM", how="left")
+
+    # One row per provider+year — keep the last-filed report if multiple exist
+    merged = merged.sort_values("REPT_REC_NUM").drop_duplicates(
+        subset=["PRVDR_NUM", "fy_year"], keep="last"
+    )
 
     # --- Upsert into facility_financials ---
     upserted = skipped = no_match = 0

@@ -33,8 +33,9 @@ class Settings(BaseSettings):
     #   medicare-provider-cost-report/home-health-agency
     # The ZIP contains *_RPT_*.CSV and *_NMRC_*.CSV files.
     # Set HCRIS_HHA_URL / HCRIS_HOSPICE_URL in .env with the correct link.
-    hcris_hha_url: str = ""       # set in .env: HCRIS_HHA_URL=https://...
-    hcris_hospice_url: str = ""   # set in .env: HCRIS_HOSPICE_URL=https://...
+    # HHA data is per-fiscal-year (no all-years ZIP). URL template uses HCRIS_YEAR.
+    hcris_hha_url: str = "https://downloads.cms.gov/FILES/HCRIS/HHA20FY2022.ZIP"
+    hcris_hospice_url: str = "https://downloads.cms.gov/Files/hcris/HOSPC14-ALL-YEARS.zip"
     hcris_year: int = 2022
 
     # CA HCAI Annual Financial Disclosure

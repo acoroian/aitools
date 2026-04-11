@@ -72,45 +72,54 @@ def download_csv(url: str) -> pd.DataFrame:
 
 
 def normalize(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize column names and values to our schema."""
-    # Lower-case all column names, strip whitespace
-    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    """Normalize column names and values to our schema.
 
-    # Detect actual column names (they vary slightly between releases)
-    col = {c: c for c in df.columns}
+    Confirmed CDPH column names (uppercase, as delivered by the CSV):
+      FACID, FACNAME, FAC_TYPE_CODE, FAC_FDR, ADDRESS, CITY, COUNTY_NAME,
+      ZIP, LATITUDE, LONGITUDE, LICENSE_STATUS_DESCRIPTION, LICENSE_NUMBER,
+      LICENSE_EXPIRATION_DATE, CCN, NPI, HCAI_ID
+    """
+    # Strip any accidental whitespace from column names but preserve case
+    df.columns = [c.strip() for c in df.columns]
 
-    # Build normalized frame
+    # FAC_FDR contains the human-readable facility type description used for
+    # type mapping; FAC_TYPE_CODE is the short code (kept for reference).
+    type_col = "FAC_FDR" if "FAC_FDR" in df.columns else "FAC_TYPE_CODE"
+
     out = pd.DataFrame()
-    out["cdph_id"] = df.get(col.get("facid", "facid"), pd.Series(dtype=str)).str.strip()
-    out["name"] = df.get(col.get("facname", "facname"), pd.Series(dtype=str)).str.strip().str.title()
-    out["type"] = df.get(col.get("factype", "factype"), pd.Series(dtype=str)).apply(_canonical_type)
-    out["address"] = df.get(col.get("address", "address"), pd.Series(dtype=str)).str.strip().str.title()
-    out["city"] = df.get(col.get("city", "city"), pd.Series(dtype=str)).str.strip().str.title()
-    out["county"] = df.get(col.get("county", "county"), pd.Series(dtype=str)).str.strip().str.title()
-    out["zip"] = df.get(col.get("zip", "zip"), pd.Series(dtype=str)).str.strip().str[:10]
-    out["phone"] = df.get(col.get("phone", "phone"), pd.Series(dtype=str)).str.strip()
-    out["license_status"] = df.get(col.get("facstatus", "facstatus"), pd.Series(dtype=str)).apply(_canonical_status)
-    out["license_number"] = df.get(col.get("licnum", "licnum"), pd.Series(dtype=str)).str.strip()
+    out["cdph_id"] = df["FACID"].str.strip()
+    out["name"] = df["FACNAME"].str.strip().str.title()
+    out["type"] = df[type_col].apply(_canonical_type)
+    out["address"] = df["ADDRESS"].str.strip().str.title()
+    out["city"] = df["CITY"].str.strip().str.title()
+    out["county"] = df["COUNTY_NAME"].str.strip().str.title()
+    out["zip"] = df["ZIP"].str.strip().str[:10]
+    # CDPH CSV does not include a phone column
+    out["phone"] = None
+    out["license_status"] = df["LICENSE_STATUS_DESCRIPTION"].apply(_canonical_status)
+    out["license_number"] = df["LICENSE_NUMBER"].str.strip()
 
-    # Parse lat/lon — CDPH provides these directly
-    lat_col = next((c for c in df.columns if "lat" in c), None)
-    lon_col = next((c for c in df.columns if "lon" in c or "lng" in c), None)
-    out["lat"] = pd.to_numeric(df[lat_col], errors="coerce") if lat_col else None
-    out["lon"] = pd.to_numeric(df[lon_col], errors="coerce") if lon_col else None
+    # Lat/lon are provided directly — no geocoding needed
+    out["lat"] = pd.to_numeric(df["LATITUDE"], errors="coerce")
+    out["lon"] = pd.to_numeric(df["LONGITUDE"], errors="coerce")
 
-    # Parse license expiry
-    expiry_col = next((c for c in df.columns if "expir" in c), None)
-    if expiry_col:
-        out["license_expiry"] = pd.to_datetime(df[expiry_col], errors="coerce").dt.date
-    else:
-        out["license_expiry"] = None
+    # License expiry
+    out["license_expiry"] = pd.to_datetime(
+        df["LICENSE_EXPIRATION_DATE"], errors="coerce"
+    ).dt.date
+
+    # Optional cross-reference IDs (may be blank for many rows)
+    out["ccn"] = df["CCN"].str.strip() if "CCN" in df.columns else None
+    out["cms_npi"] = df["NPI"].str.strip() if "NPI" in df.columns else None
+    out["hcai_id"] = df["HCAI_ID"].str.strip() if "HCAI_ID" in df.columns else None
 
     out["primary_source"] = "cdph"
     out["last_verified"] = date.today()
 
-    # Drop rows with no CDPH ID
+    # Drop rows with no CDPH ID or no valid coordinates
     out = out[out["cdph_id"].notna() & (out["cdph_id"] != "")]
-    log.info("Normalized to %d valid rows", len(out))
+    out = out[out["lat"].notna() & out["lon"].notna()]
+    log.info("Normalized to %d valid rows (with coordinates)", len(out))
     return out
 
 
@@ -149,12 +158,16 @@ def _apply_row(facility: Facility, row: "pd.Series") -> None:  # type: ignore[ty
     facility.county = row.get("county")
     facility.state = "CA"
     facility.zip = row.get("zip")
-    facility.phone = row.get("phone")
+    facility.phone = row.get("phone") or None
     facility.license_status = row.get("license_status")
     facility.license_number = row.get("license_number")
     facility.license_expiry = row.get("license_expiry") or None
     facility.lat = row.get("lat") or None
     facility.lon = row.get("lon") or None
+    # Set NPI from CDPH CSV if present (crosswalk resolver may later enrich this)
+    npi = row.get("cms_npi")
+    if npi and str(npi).strip():
+        facility.cms_npi = str(npi).strip()
     facility.primary_source = "cdph"
     facility.last_verified = row.get("last_verified")
 

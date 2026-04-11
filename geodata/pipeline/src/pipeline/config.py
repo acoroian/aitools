@@ -19,8 +19,8 @@ class Settings(BaseSettings):
 
     # Data source URLs
     cdph_facility_csv_url: str = (
-        "https://data.chhs.ca.gov/dataset/e54ef530-a99c-4c2c-94f1-fcc33e0da6b0"
-        "/resource/8d5a4e28-e942-4dc0-9e5c-b89e5a9b8855/download/health_facility_locations.csv"
+        "https://data.chhs.ca.gov/dataset/3b5b80e8-6b8d-4715-b3c0-2699af6e72e5"
+        "/resource/f0ae5731-fef8-417f-839d-54a0ed3a126e/download/health_facility_locations.csv"
     )
     cdph_crosswalk_url: str = (
         "https://data.chhs.ca.gov/dataset/e89100fd-1f1d-4a37-8205-d588aa42e5a1"

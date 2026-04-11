@@ -38,10 +38,14 @@ class Settings(BaseSettings):
     hcris_hospice_url: str = "https://downloads.cms.gov/Files/hcris/HOSPC14-ALL-YEARS.zip"
     hcris_year: int = 2022
 
-    # CA HCAI Annual Financial Disclosure
-    # Download page: https://hcai.ca.gov/data-and-reports/research-data/annual-financial-data/
-    # Set HCAI_SNF_URL in .env with the direct XLSX link for SNF data.
-    hcai_snf_url: str = ""        # set in .env: HCAI_SNF_URL=https://...
+    # CA HCAI Long-Term Care Annual Financial Disclosure — Selected File
+    # Index: https://data.chhs.ca.gov/dataset/long-term-care-facility-disclosure-report-data
+    # File contains ~1,344 LTC facilities (SNF, CLHF, ICF) for the fiscal year.
+    hcai_snf_url: str = (
+        "https://data.chhs.ca.gov/dataset/70fcfed4-c9b8-4c13-8c5f-06591261cba4"
+        "/resource/b8e56328-c555-48db-a181-25d1035509a5"
+        "/download/lafd-1222-sub-selected.xlsx"
+    )
     hcai_year: int = 2022
 
 

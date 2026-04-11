@@ -1,27 +1,39 @@
 """
-CA HCAI Annual Financial Disclosure ingest — Skilled Nursing Facilities.
+CA HCAI Long-Term Care Annual Financial Disclosure ingest.
 
-HCAI (Health Care Access and Information, formerly OSHPD) publishes
-annual financial data for CA licensed facilities as Excel workbooks.
+HCAI (Health Care Access and Information, formerly OSHPD) publishes an
+annual "Selected File" XLSX of long-term care financial disclosures for
+SNFs, CLHFs, SNF/RES, and ICFs. The 2022 extract has 1,344 facilities
+and 221 columns.
 
-The SNF workbook has one row per facility per year with columns including:
-  OSHPD_ID (or Facility ID), Facility Name, Gross Patient Revenue,
-  Net Patient Revenue, Total Revenue, Total Expenses, Net Income,
-  Medicare Revenue, Medi-Cal Revenue.
+Source index:
+  https://data.chhs.ca.gov/dataset/long-term-care-facility-disclosure-report-data
 
-Join key: OSHPD_ID → facilities.oshpd_id
+Join strategy:
+  HCAI uses its own facility numbering (FAC_NO) which does NOT match the
+  CDPH license_number nor an OSHPD ID in our DB. We join by
+  normalized (name, zip_code) — verified against sample rows that the
+  HCAI FAC_NAME + ZIP_CODE uniquely identifies facilities already in
+  our CDPH-sourced facilities table.
 
-Download page:
-  https://hcai.ca.gov/data-and-reports/research-data/annual-financial-data/
-
-Note: HCAI changed their URL structure; if the default URL fails, update
-HCAI_SNF_URL in settings/.env.
+HCAI Selected File column names (verified against lafd-1222-sub-selected.xlsx):
+  FAC_NO           9-digit HCAI facility number
+  FAC_NAME         facility name
+  CITY             city
+  ZIP_CODE         5-digit ZIP
+  LIC_CAT          SNF | CLHF | SNF/RES | ICF
+  TOT_HC_REV       total healthcare revenue   → gross_revenue
+  OTH_OP_REV       other operating revenue
+  NET_INCOME       net income                 → net_income
+  GR_RT_MCAR       Medicare gross revenue     → medicare_revenue
+  GR_RT_MCAL       Medi-Cal gross revenue     → medicaid_revenue
 """
 
 from __future__ import annotations
 
 import io
 import logging
+import re
 
 import httpx
 import pandas as pd
@@ -32,33 +44,37 @@ from pipeline.models import Facility, FacilityFinancial
 
 log = logging.getLogger(__name__)
 
-# Known column aliases across HCAI Excel releases (they rename columns between years)
-_COL_ALIASES: dict[str, list[str]] = {
-    "oshpd_id":        ["OSHPD_ID", "Oshpd Id", "FACILITY_ID", "Facility ID", "License Number"],
-    "gross_revenue":   ["GROSS_PATIENT_REV", "Gross Patient Revenue", "Gross Revenue"],
-    "net_revenue":     ["NET_PATIENT_REV", "Net Patient Revenue", "Net Revenue"],
-    "total_expenses":  ["TOTAL_EXPENSES", "Total Expenses", "Total Operating Expense"],
-    "medicare_revenue":["MEDICARE_REV", "Medicare Revenue", "Medicare Net Revenue"],
-    "medicaid_revenue":["MEDI_CAL_REV", "Medi-Cal Revenue", "Medicaid Revenue"],
-    "net_income":      ["NET_INCOME", "Net Income", "Total Net Income"],
+
+# HCAI column → FacilityFinancial attribute
+_REVENUE_COLS: dict[str, str] = {
+    "TOT_HC_REV": "gross_revenue",
+    "NET_INCOME": "net_income",
+    "GR_RT_MCAR": "medicare_revenue",
+    "GR_RT_MCAL": "medicaid_revenue",
 }
 
 
-def _resolve_col(df: pd.DataFrame, aliases: list[str]) -> str | None:
-    """Return the first alias that is a column in df, or None."""
-    for alias in aliases:
-        if alias in df.columns:
-            return alias
-    # Try case-insensitive match
-    lower = {c.lower(): c for c in df.columns}
-    for alias in aliases:
-        if alias.lower() in lower:
-            return lower[alias.lower()]
-    return None
+def _normalize_name(s: object) -> str:
+    """Uppercase, strip punctuation/whitespace for fuzzy name matching."""
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return ""
+    s = str(s).upper().strip()
+    # Strip common punctuation and collapse whitespace
+    s = re.sub(r"[.,'&/-]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _normalize_zip(s: object) -> str:
+    """Return first 5 digits of a zip; empty if not parseable."""
+    if s is None or (isinstance(s, float) and pd.isna(s)):
+        return ""
+    digits = re.sub(r"\D", "", str(s))
+    return digits[:5] if len(digits) >= 5 else ""
 
 
 def _download(url: str) -> bytes:
-    log.info("Downloading HCAI Excel from %s", url)
+    log.info("Downloading HCAI LTC Excel from %s", url)
     with httpx.Client(timeout=120, follow_redirects=True) as client:
         resp = client.get(url)
         resp.raise_for_status()
@@ -67,82 +83,82 @@ def _download(url: str) -> bytes:
 
 
 def _parse_excel(raw: bytes) -> pd.DataFrame:
-    """Read the HCAI Excel, find the data sheet, normalize columns."""
+    """Read the single sheet from the HCAI Selected File."""
     xl = pd.ExcelFile(io.BytesIO(raw), engine="openpyxl")
-    # Use the first sheet that has >10 rows (skip cover/notes sheets)
-    for sheet in xl.sheet_names:
-        df = xl.parse(sheet, dtype=str)
-        if len(df) > 10:
-            log.info("Using sheet '%s' with %d rows", sheet, len(df))
-            df.columns = [str(c).strip() for c in df.columns]
-            return df
-    raise ValueError(f"No data sheet found in HCAI Excel. Sheets: {xl.sheet_names}")
+    sheet = xl.sheet_names[0]
+    df = xl.parse(sheet)
+    log.info("Parsed %d rows x %d cols from sheet '%s'", len(df), len(df.columns), sheet)
+    return df
 
 
-def _load_oshpd_index() -> dict[str, str]:
-    """Return {oshpd_id: facility_id} for all CA facilities with oshpd_id set."""
+def _load_facility_index() -> dict[tuple[str, str], str]:
+    """
+    Return {(normalized_name, zip5): facility_id} for all CA facilities
+    that have a non-null name and zip. Used to join HCAI rows to our
+    facilities table.
+    """
     with get_session() as session:
         rows = (
-            session.query(Facility.oshpd_id, Facility.id)
-            .filter(Facility.oshpd_id.isnot(None))
+            session.query(Facility.id, Facility.name, Facility.zip)
+            .filter(Facility.name.isnot(None))
+            .filter(Facility.zip.isnot(None))
             .all()
         )
-    return {r.oshpd_id.strip(): str(r.id) for r in rows}
+    index: dict[tuple[str, str], str] = {}
+    for r in rows:
+        key = (_normalize_name(r.name), _normalize_zip(r.zip))
+        if key[0] and key[1]:
+            index[key] = str(r.id)
+    return index
 
 
 def run() -> dict[str, int]:
-    """Ingest HCAI SNF annual financial data. Returns {upserted, skipped, no_match}."""
+    """Ingest HCAI LTC annual financial data. Returns {upserted, skipped, no_match}."""
     raw = _download(settings.hcai_snf_url)
     df = _parse_excel(raw)
 
-    # Resolve column names
-    col = {}
-    missing = []
-    for field_name, aliases in _COL_ALIASES.items():
-        resolved = _resolve_col(df, aliases)
-        if resolved:
-            col[field_name] = resolved
-        else:
-            missing.append(field_name)
-
-    if "oshpd_id" not in col:
-        raise ValueError(
-            f"Could not find OSHPD_ID column. Available columns: {list(df.columns)[:20]}"
-        )
+    required = ["FAC_NAME", "ZIP_CODE"]
+    missing = [c for c in required if c not in df.columns]
     if missing:
-        log.warning("Could not resolve columns (will be NULL): %s", missing)
+        raise ValueError(
+            f"HCAI file missing required columns {missing}. "
+            f"Available: {list(df.columns)[:30]}"
+        )
 
-    oshpd_index = _load_oshpd_index()
-    log.info("CA facilities with OSHPD ID in DB: %d", len(oshpd_index))
+    index = _load_facility_index()
+    log.info("CA facilities in name+zip index: %d", len(index))
 
-    if not oshpd_index:
-        log.warning("No OSHPD IDs loaded — run crosswalk ingest first")
+    if not index:
+        log.warning("No facilities loaded — run CDPH ingest first")
         return {"upserted": 0, "skipped": 0, "no_match": 0}
 
     year = settings.hcai_year
     source_tag = "hcai"
     upserted = skipped = no_match = 0
 
-    def _dollars(val: object) -> int | None:
-        """Parse a dollar string like '$1,234,567' or '1234567' to integer cents."""
-        if val is None or str(val).strip() in ("", "nan", "N/A", "--"):
+    def _int(val: object) -> int | None:
+        if val is None or pd.isna(val):
             return None
-        cleaned = str(val).replace("$", "").replace(",", "").strip()
         try:
-            # HCAI reports in dollars; store as dollars (not cents)
-            return int(float(cleaned))
+            return int(float(str(val).replace("$", "").replace(",", "").strip()))
         except (ValueError, OverflowError):
             return None
 
+    # Dedup by (name, zip) — take first row per facility (Selected File is
+    # already one row per facility, but be defensive)
+    seen: set[tuple[str, str]] = set()
+
     with get_session() as session:
         for _, row in df.iterrows():
-            raw_id = _resolve_col(df, _COL_ALIASES["oshpd_id"])
-            oshpd_id = str(row.get(col["oshpd_id"], "")).strip() if "oshpd_id" in col else None
-            if not oshpd_id or oshpd_id in ("", "nan"):
+            key = (_normalize_name(row.get("FAC_NAME")), _normalize_zip(row.get("ZIP_CODE")))
+            if not key[0] or not key[1]:
                 skipped += 1
                 continue
+            if key in seen:
+                continue
+            seen.add(key)
 
-            facility_id = oshpd_index.get(oshpd_id)
+            facility_id = index.get(key)
             if not facility_id:
                 no_match += 1
                 continue
@@ -158,18 +174,13 @@ def run() -> dict[str, int]:
                 )
                 session.add(existing)
 
-            if "gross_revenue" in col:
-                existing.gross_revenue = _dollars(row.get(col["gross_revenue"]))
-            if "net_revenue" in col:
-                existing.net_revenue = _dollars(row.get(col["net_revenue"]))
-            if "total_expenses" in col:
-                existing.total_expenses = _dollars(row.get(col["total_expenses"]))
-            if "medicare_revenue" in col:
-                existing.medicare_revenue = _dollars(row.get(col["medicare_revenue"]))
-            if "medicaid_revenue" in col:
-                existing.medicaid_revenue = _dollars(row.get(col["medicaid_revenue"]))
+            for hcai_col, field in _REVENUE_COLS.items():
+                if hcai_col in df.columns and hasattr(existing, field):
+                    val = _int(row.get(hcai_col))
+                    if val is not None:
+                        setattr(existing, field, val)
 
             upserted += 1
 
-    log.info("HCAI SNF upserted=%d skipped=%d no_match=%d", upserted, skipped, no_match)
+    log.info("HCAI LTC upserted=%d skipped=%d no_match=%d", upserted, skipped, no_match)
     return {"upserted": upserted, "skipped": skipped, "no_match": no_match}

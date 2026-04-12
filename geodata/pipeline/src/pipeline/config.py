@@ -48,5 +48,12 @@ class Settings(BaseSettings):
     )
     hcai_year: int = 2022
 
+    # CMS Nursing Home Health Deficiencies (dataset r5ix-sfxw)
+    # Dataset metadata endpoint returns the current CSV's downloadURL in distribution[0].
+    cms_nh_metadata_url: str = (
+        "https://data.cms.gov/provider-data/api/1/metastore/"
+        "schemas/dataset/items/r5ix-sfxw?show-reference-ids"
+    )
+
 
 settings = Settings()

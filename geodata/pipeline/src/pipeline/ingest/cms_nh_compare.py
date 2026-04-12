@@ -167,18 +167,9 @@ _UPSERT_SQL = text("""
 
 
 def _load_ca_ccn_map(session: Session) -> dict[str, str]:
-    """Return {ccn: facility_id} for CA facilities with a CCN.
-
-    When multiple facilities share a CCN (rare — usually from test
-    seeding or data dedup drift), the most recently created row wins
-    so tests can override production rows inside a SAVEPOINT.
-    """
+    """Return {ccn: facility_id} for CA facilities with a CCN."""
     rows = session.execute(
-        text(
-            "SELECT ccn, id::text FROM facilities "
-            "WHERE ccn IS NOT NULL AND state = 'CA' "
-            "ORDER BY created_at ASC NULLS FIRST"
-        )
+        text("SELECT ccn, id::text FROM facilities WHERE ccn IS NOT NULL AND state = 'CA'")
     ).all()
     return {r[0].strip().zfill(6): r[1] for r in rows}
 

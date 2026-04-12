@@ -15,6 +15,18 @@ FIXTURE = Path(__file__).parent / "fixtures" / "violations" / "cms_nh_compare_sa
 
 
 def _seed_facility(session, ccn: str, name: str = "Test SNF") -> str:
+    # The dev DB already contains real facilities for common CCNs.
+    # Inside the SAVEPOINT fixture these deletes roll back at teardown,
+    # so production data is not affected — this just gives each test a
+    # clean slate for the CCN it wants to own.
+    session.execute(
+        text(
+            "DELETE FROM facility_violations WHERE facility_id IN "
+            "(SELECT id FROM facilities WHERE ccn = :ccn)"
+        ),
+        {"ccn": ccn},
+    )
+    session.execute(text("DELETE FROM facilities WHERE ccn = :ccn"), {"ccn": ccn})
     fid = str(uuid4())
     session.execute(
         text("""

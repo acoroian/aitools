@@ -55,5 +55,11 @@ class Settings(BaseSettings):
         "schemas/dataset/items/r5ix-sfxw?show-reference-ids"
     )
 
+    # CDPH Health Facilities State Enforcement Actions (CA, annual)
+    cdph_sea_package_id: str = "1e1e2904-1bfb-448c-97e1-cf3e228c9159"
+    cdph_sea_metadata_url: str = (
+        "https://data.chhs.ca.gov/api/3/action/package_show?id=1e1e2904-1bfb-448c-97e1-cf3e228c9159"
+    )
+
 
 settings = Settings()

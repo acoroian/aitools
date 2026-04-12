@@ -17,7 +17,13 @@ class FacilityFilterRequest(BaseModel):
     county: str | None = None
     gross_revenue_min: int | None = Field(None, ge=0)
     gross_revenue_max: int | None = Field(None, ge=0)
+    # Violation filters (Phase 3 — via facility_violation_rollup)
+    violation_count_min: int | None = Field(None, ge=0)
     violation_count_max: int | None = Field(None, ge=0)
+    violation_count_12mo_min: int | None = Field(None, ge=0)
+    max_severity_level_min: int | None = Field(None, ge=0, le=10)
+    has_ij_12mo: bool | None = None
+    survey_date_after: str | None = Field(None, description="ISO date YYYY-MM-DD")
     year: int | None = Field(None, description="Financial data year filter")
     certified_medicare: bool | None = None
     certified_medicaid: bool | None = None

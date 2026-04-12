@@ -54,11 +54,13 @@ def filter_facilities(
         where_clauses.append("f.certified_medicaid = :certified_medicaid")
 
     # Financial filters require a join
-    needs_financials = any([
-        req.gross_revenue_min is not None,
-        req.gross_revenue_max is not None,
-        req.year is not None,
-    ])
+    needs_financials = any(
+        [
+            req.gross_revenue_min is not None,
+            req.gross_revenue_max is not None,
+            req.year is not None,
+        ]
+    )
 
     fin_join = ""
     if needs_financials:
@@ -91,21 +93,38 @@ def filter_facilities(
             ) fin ON true
         """
 
-    # Violation count filter
+    # Violation filters — via facility_violation_rollup
+    if req.violation_count_min is not None:
+        params["viol_min"] = req.violation_count_min
+        where_clauses.append("COALESCE(viol.violation_count_total, 0) >= :viol_min")
     if req.violation_count_max is not None:
         params["viol_max"] = req.violation_count_max
-        where_clauses.append("""
-            (SELECT COUNT(*) FROM facility_violations WHERE facility_id = f.id) <= :viol_max
-        """)
+        where_clauses.append("COALESCE(viol.violation_count_total, 0) <= :viol_max")
+    if req.violation_count_12mo_min is not None:
+        params["viol_12mo_min"] = req.violation_count_12mo_min
+        where_clauses.append("COALESCE(viol.violation_count_12mo, 0) >= :viol_12mo_min")
+    if req.max_severity_level_min is not None:
+        params["sev_min"] = req.max_severity_level_min
+        where_clauses.append("COALESCE(viol.max_severity_level_12mo, 0) >= :sev_min")
+    if req.has_ij_12mo is not None:
+        params["has_ij"] = req.has_ij_12mo
+        where_clauses.append("COALESCE(viol.has_ij_12mo, FALSE) = :has_ij")
+    if req.survey_date_after is not None:
+        params["survey_after"] = req.survey_date_after
+        where_clauses.append("viol.last_survey_date >= :survey_after::date")
 
     # ── Spatial filter ────────────────────────────────────────────────────────
     if req.spatial:
         try:
-            geojson_str = json.dumps({"type": req.spatial.type, "coordinates": req.spatial.coordinates})
+            geojson_str = json.dumps(
+                {"type": req.spatial.type, "coordinates": req.spatial.coordinates}
+            )
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"Invalid spatial filter: {exc}") from exc
         params["polygon"] = geojson_str
-        where_clauses.append("ST_Intersects(f.geom, ST_SetSRID(ST_GeomFromGeoJSON(:polygon), 4326))")
+        where_clauses.append(
+            "ST_Intersects(f.geom, ST_SetSRID(ST_GeomFromGeoJSON(:polygon), 4326))"
+        )
 
     # ── Build query ───────────────────────────────────────────────────────────
     where_sql = " AND ".join(where_clauses)
@@ -127,10 +146,15 @@ def filter_facilities(
             f.lon,
             COALESCE(fin.gross_revenue, 0) AS gross_revenue,
             fin.year AS revenue_year,
-            (SELECT COUNT(*)::int FROM facility_violations WHERE facility_id = f.id) AS violation_count,
-            (SELECT MAX(survey_date)::text FROM facility_violations WHERE facility_id = f.id) AS last_violation
+            COALESCE(viol.violation_count_total, 0) AS violation_count,
+            COALESCE(viol.violation_count_12mo, 0) AS violation_count_12mo,
+            viol.max_severity_12mo,
+            COALESCE(viol.max_severity_level_12mo, 0) AS max_severity_level_12mo,
+            COALESCE(viol.has_ij_12mo, FALSE) AS has_ij_12mo,
+            viol.last_survey_date::text AS last_survey_date
         FROM facilities f
         {fin_join}
+        LEFT JOIN facility_violation_rollup viol ON viol.facility_id = f.id
         WHERE {where_sql}
         ORDER BY f.name
         LIMIT :limit OFFSET :offset
@@ -141,7 +165,9 @@ def filter_facilities(
     # Column order: id(0) name(1) type(2) subtype(3) address(4) city(5)
     # county(6) zip(7) license_status(8) certified_medicare(9)
     # certified_medicaid(10) lat(11) lon(12) gross_revenue(13)
-    # revenue_year(14) violation_count(15) last_violation(16)
+    # revenue_year(14) violation_count(15) violation_count_12mo(16)
+    # max_severity_12mo(17) max_severity_level_12mo(18)
+    # has_ij_12mo(19) last_survey_date(20)
     features = [
         GeoJSONFeature(
             geometry={"type": "Point", "coordinates": [r[12], r[11]]},  # [lon, lat]
@@ -160,7 +186,11 @@ def filter_facilities(
                 "gross_revenue": r[13],
                 "revenue_year": r[14],
                 "violation_count": r[15],
-                "last_violation": r[16],
+                "violation_count_12mo": r[16],
+                "max_severity_12mo": r[17],
+                "max_severity_level_12mo": r[18],
+                "has_ij_12mo": r[19],
+                "last_survey_date": r[20],
             },
         )
         for r in rows
@@ -206,25 +236,52 @@ def get_facility(facility_id: str, db: Session = Depends(get_db)) -> dict:
     ).fetchall()
 
     return {
-        "id": row[0], "name": row[1], "type": row[2], "subtype": row[3],
-        "address": row[4], "city": row[5], "county": row[6], "zip": row[7], "phone": row[8],
-        "license_status": row[9], "license_number": row[10], "license_expiry": row[11],
-        "certified_medicare": row[12], "certified_medicaid": row[13],
-        "lat": row[14], "lon": row[15],
-        "cdph_id": row[16], "cms_npi": row[17], "oshpd_id": row[18], "cdss_id": row[19],
+        "id": row[0],
+        "name": row[1],
+        "type": row[2],
+        "subtype": row[3],
+        "address": row[4],
+        "city": row[5],
+        "county": row[6],
+        "zip": row[7],
+        "phone": row[8],
+        "license_status": row[9],
+        "license_number": row[10],
+        "license_expiry": row[11],
+        "certified_medicare": row[12],
+        "certified_medicaid": row[13],
+        "lat": row[14],
+        "lon": row[15],
+        "cdph_id": row[16],
+        "cms_npi": row[17],
+        "oshpd_id": row[18],
+        "cdss_id": row[19],
         "financials": [
             {
-                "year": f[0], "source": f[1], "gross_revenue": f[2], "net_revenue": f[3],
-                "total_expenses": f[4], "medicare_revenue": f[5], "medicaid_revenue": f[6],
-                "private_revenue": f[7], "total_visits": f[8], "total_patients": f[9],
+                "year": f[0],
+                "source": f[1],
+                "gross_revenue": f[2],
+                "net_revenue": f[3],
+                "total_expenses": f[4],
+                "medicare_revenue": f[5],
+                "medicaid_revenue": f[6],
+                "private_revenue": f[7],
+                "total_visits": f[8],
+                "total_patients": f[9],
             }
             for f in financials
         ],
         "violations": [
             {
-                "survey_date": v[0], "source": v[1], "deficiency_tag": v[2],
-                "category": v[3], "severity": v[4], "scope": v[5],
-                "description": v[6], "resolved": v[7], "resolved_date": v[8],
+                "survey_date": v[0],
+                "source": v[1],
+                "deficiency_tag": v[2],
+                "category": v[3],
+                "severity": v[4],
+                "scope": v[5],
+                "description": v[6],
+                "resolved": v[7],
+                "resolved_date": v[8],
             }
             for v in violations
         ],

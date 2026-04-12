@@ -21,7 +21,7 @@ app.conf.update(
     worker_prefetch_multiplier=1,
     # Beat schedule — data refresh cadence
     beat_schedule={
-        # CDPH refreshes on the 11th business day of each month
+        # CDPH facility locations — monthly
         "ingest-cdph-monthly": {
             "task": "pipeline.tasks.ingest_cdph",
             "schedule": crontab(day_of_month="15", hour="2", minute="0"),
@@ -29,6 +29,16 @@ app.conf.update(
         "ingest-crosswalk-monthly": {
             "task": "pipeline.tasks.ingest_crosswalk",
             "schedule": crontab(day_of_month="15", hour="3", minute="0"),
+        },
+        # CMS Nursing Home Health Deficiencies — monthly, 1st of month
+        "ingest-cms-nh-compare-monthly": {
+            "task": "pipeline.tasks.ingest_cms_nh_compare",
+            "schedule": crontab(day_of_month="1", hour="5", minute="0"),
+        },
+        # CDPH State Enforcement Actions — annual, July 15
+        "ingest-cdph-sea-annual": {
+            "task": "pipeline.tasks.ingest_cdph_sea",
+            "schedule": crontab(month_of_year="7", day_of_month="15", hour="6", minute="0"),
         },
         # Regenerate tiles nightly
         "generate-tiles-nightly": {

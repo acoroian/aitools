@@ -3,7 +3,6 @@
 import logging
 
 from pipeline.celery_app import app
-from pipeline.config import settings
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +59,12 @@ def ingest_hcris_hha(self):  # type: ignore[no-untyped-def]
         raise self.retry(exc=exc)
 
 
-@app.task(bind=True, max_retries=2, default_retry_delay=600, name="pipeline.tasks.ingest_hcris_hospice")
+@app.task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=600,
+    name="pipeline.tasks.ingest_hcris_hospice",
+)
 def ingest_hcris_hospice(self):  # type: ignore[no-untyped-def]
     """Download and upsert CMS HCRIS Hospice cost reports."""
     try:
@@ -105,3 +109,63 @@ def generate_all_tiles():  # type: ignore[no-untyped-def]
             results[slug] = "error"
 
     return results
+
+
+@app.task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=600,
+    name="pipeline.tasks.ingest_cms_nh_compare",
+)
+def ingest_cms_nh_compare(self):  # type: ignore[no-untyped-def]
+    """Download and upsert CMS Nursing Home Health Deficiencies (SNF, monthly)."""
+    try:
+        from pipeline.ingest.cms_nh_compare import run
+        result = run()
+        log.info("CMS NH Compare ingest complete: %s", result)
+        refresh_violation_rollup.delay()
+        return result
+    except Exception as exc:
+        log.exception("CMS NH Compare ingest failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=600,
+    name="pipeline.tasks.ingest_cdph_sea",
+)
+def ingest_cdph_sea(self):  # type: ignore[no-untyped-def]
+    """Download and upsert CDPH State Enforcement Actions (CA, annual)."""
+    try:
+        from pipeline.ingest.cdph_sea import run
+        result = run()
+        log.info("CDPH SEA ingest complete: %s", result)
+        refresh_violation_rollup.delay()
+        return result
+    except Exception as exc:
+        log.exception("CDPH SEA ingest failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+    name="pipeline.tasks.refresh_violation_rollup",
+)
+def refresh_violation_rollup(self):  # type: ignore[no-untyped-def]
+    """Rebuild facility_violation_rollup from facility_violations."""
+    try:
+        from pipeline.db import get_session
+        from pipeline.violations.rollup import refresh_violation_rollup as _refresh
+
+        with get_session() as session:
+            result = _refresh(session)
+            session.commit()
+        log.info("Violation rollup refresh complete: %s", result)
+        return result
+    except Exception as exc:
+        log.exception("Violation rollup refresh failed: %s", exc)
+        raise self.retry(exc=exc)

@@ -38,7 +38,6 @@ COLUMN_MAP: dict[str, str] = {
     "citation_issue_date": "PENALTY_ISSUE_DATE",
     "citation_class_initial": "CLASS_ASSESSED_INITIAL",
     "citation_class_final": "CLASS_ASSESSED_FINAL",
-    "penalty_amount": "TOTAL_AMOUNT_DUE_FINAL",
     "penalty_detail": "PENALTY_DETAIL",
     "penalty_category": "PENALTY_CATEGORY",
 }
@@ -140,26 +139,25 @@ def _parse_date(val: object) -> date | None:
     return None
 
 
-def _parse_penalty(val: object) -> float | None:
-    if val is None or (isinstance(val, float) and pd.isna(val)):
-        return None
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return None
-
-
 def _normalize_severity(val: object) -> str | None:
     """Extract an AA/A/B class code from the raw CDPH severity string.
 
     CDPH's CLASS_ASSESSED_FINAL contains values like 'A', 'B', 'AA',
-    'A Trebled', 'B First', 'Dismissed by Court'. We keep AA/A/B and
-    collapse any suffix; anything else returns None.
+    'A Trebled', 'B First', 'Dismissed by Court', 'FTR BR'. We keep
+    AA/A/B (collapsing modifiers like 'Trebled') and return None for
+    everything else.
+
+    NOTE: Rows with non-AA/A/B classes (dismissed, FTR, reversed, etc.)
+    still ingest, but their severity=None means they do NOT contribute
+    to `has_ij_12mo` or `max_severity_level_12mo` in the rollup. This
+    is correct for dismissed citations and an MVP trade-off for codes
+    like 'FTR BR' (Failure To Report Bed Reservation) that are real
+    B-ish violations encoded as strings — a future pass can map them.
     """
     raw = _clean(val)
     if raw is None:
         return None
-    token = raw.split()[0].upper().rstrip("\t").strip()
+    token = raw.split()[0].upper()
     if token in {"AA", "A", "B"}:
         return token
     return None
@@ -182,7 +180,6 @@ def normalize_rows(df: pd.DataFrame) -> list[dict]:
         description = _clean(r.get(COLUMN_MAP["penalty_detail"])) or _clean(
             r.get(COLUMN_MAP["penalty_category"])
         )
-        penalty_amount = _parse_penalty(r.get(COLUMN_MAP["penalty_amount"]))
 
         rows.append(
             {
@@ -198,7 +195,6 @@ def normalize_rows(df: pd.DataFrame) -> list[dict]:
                 "corrective_action": None,
                 "resolved": False,
                 "resolved_date": None,
-                "penalty_amount": penalty_amount,
             }
         )
     return rows

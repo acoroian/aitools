@@ -112,3 +112,27 @@ def test_run_with_csv_is_idempotent(db_session):
     ).scalar_one()
 
     assert count1 == count2
+
+
+def test_normalize_rows_coerces_nan_to_none():
+    """NaN values in string columns must become None, not the string 'nan'."""
+    csv = (
+        "cms_certification_number_ccn,provider_name,provider_address,citytown,state,zip_code,"
+        "survey_date,survey_type,deficiency_prefix,deficiency_category,deficiency_tag_number,"
+        "deficiency_description,scope_severity_code,deficiency_corrected,correction_date,"
+        "inspection_cycle,standard_deficiency,complaint_deficiency,"
+        "infection_control_inspection_deficiency,citation_under_idr,citation_under_iidr,"
+        "location,processing_date\n"
+        "055099,NAN SNF,1 NAN WAY,LOS ANGELES,CA,90001,2026-03-01,Health,F,,0100,,D,,,"
+        "1,Y,N,N,N,N,,2026-04-01\n"
+    )
+    df = parse_csv(csv.encode())
+    df = filter_to_ca(df)
+    rows = normalize_rows(df)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["category"] is None
+    assert r["description"] is None
+    assert r["resolved"] is False
+    assert r["resolved_date"] is None
+    assert r["deficiency_tag"] == "F0100"

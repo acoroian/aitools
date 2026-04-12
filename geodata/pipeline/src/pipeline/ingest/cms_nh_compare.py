@@ -109,20 +109,31 @@ def _parse_date(val: object) -> date | None:
 
 def normalize_rows(df: pd.DataFrame) -> list[dict]:
     """Convert a filtered DataFrame to a list of dicts matching facility_violations columns."""
+
+    def _clean(val: object) -> str | None:
+        """Return stripped string, or None for NaN/empty."""
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return None
+        s = str(val).strip()
+        return s or None
+
     rows: list[dict] = []
     for _, r in df.iterrows():
         ccn = str(r["cms_certification_number_ccn"]).strip().zfill(6)
         survey_date = _parse_date(r["survey_date"])
         if survey_date is None:
             continue
-        prefix = str(r.get("deficiency_prefix", "F")).strip() or "F"
+        prefix = _clean(r.get("deficiency_prefix")) or "F"
         tag_num = str(r["deficiency_tag_number"]).strip().zfill(4)
         tag = f"{prefix}{tag_num}"
         scope_severity = str(r["scope_severity_code"]).strip().upper()
-        corrected_str = str(r.get("deficiency_corrected") or "").lower()
+        corrected_val = _clean(r.get("deficiency_corrected")) or ""
+        corrected_str = corrected_val.lower()
         resolved = (
             "provider has date of correction" in corrected_str or "corrected" in corrected_str
         )
+        category = _clean(r.get("deficiency_category"))
+        description = _clean(r.get("deficiency_description"))
 
         rows.append(
             {
@@ -131,10 +142,10 @@ def normalize_rows(df: pd.DataFrame) -> list[dict]:
                 "citation_id": derive_cms_citation_id(ccn, survey_date, tag, scope_severity),
                 "survey_date": survey_date,
                 "deficiency_tag": tag,
-                "category": (r.get("deficiency_category") or None),
+                "category": category,
                 "severity": scope_severity,
                 "scope": cms_severity_to_scope(scope_severity),
-                "description": (r.get("deficiency_description") or None),
+                "description": description,
                 "corrective_action": None,
                 "resolved": resolved,
                 "resolved_date": _parse_date(r.get("correction_date")),

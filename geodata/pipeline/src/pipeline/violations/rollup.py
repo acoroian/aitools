@@ -69,11 +69,15 @@ def refresh_violation_rollup(session: Session) -> dict[str, object]:
     Caller is responsible for commit/rollback — this lets callers
     compose the refresh with other work (e.g., the tests use a
     rollback-at-teardown session).
+
+    Uses TRUNCATE + INSERT for speed and to avoid bloat; this acquires
+    ACCESS EXCLUSIVE on ``facility_violation_rollup``, so the scheduler
+    must run exactly one refresh at a time (Celery Beat, single worker).
     """
     start = time.monotonic()
     session.execute(text(_TRUNCATE_SQL))
-    session.execute(_REFRESH_SQL)
+    result = session.execute(_REFRESH_SQL)
     runtime = time.monotonic() - start
-    count = session.execute(text("SELECT COUNT(*) FROM facility_violation_rollup")).scalar_one()
+    count = result.rowcount
     log.info("refresh_violation_rollup: %d rows in %.2fs", count, runtime)
     return {"rows": int(count), "runtime_seconds": round(runtime, 3)}

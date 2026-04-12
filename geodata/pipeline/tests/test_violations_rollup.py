@@ -142,3 +142,25 @@ def test_rollup_idempotent(db_session):
         {"id": fid},
     ).scalar_one()
     assert count == 1
+
+
+def test_rollup_emits_row_for_facility_with_zero_violations(db_session):
+    fid = _insert_facility(db_session, "Empty SNF")
+    db_session.flush()
+
+    refresh_violation_rollup(db_session)
+
+    row = (
+        db_session.execute(
+            text("SELECT * FROM facility_violation_rollup WHERE facility_id = :id"),
+            {"id": fid},
+        )
+        .mappings()
+        .one()
+    )
+    assert row["violation_count_total"] == 0
+    assert row["violation_count_12mo"] == 0
+    assert row["has_ij_12mo"] is False
+    assert row["max_severity_12mo"] is None
+    assert row["max_severity_level_12mo"] is None
+    assert row["last_survey_date"] is None

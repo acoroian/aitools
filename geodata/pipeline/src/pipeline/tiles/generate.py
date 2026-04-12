@@ -11,7 +11,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import text
@@ -21,7 +21,7 @@ from pipeline.db import get_session
 
 log = logging.getLogger(__name__)
 
-# SQL: export facilities as GeoJSON features, enriched with latest financials + violation count
+# SQL: export facilities as GeoJSON features, enriched with latest financials + violation rollup
 EXPORT_SQL = """
 SELECT json_build_object(
     'type', 'Feature',
@@ -41,8 +41,11 @@ SELECT json_build_object(
         'certified_medicaid', f.certified_medicaid,
         'gross_revenue',  COALESCE(fin.gross_revenue, 0),
         'revenue_year',   fin.year,
-        'violation_count', COALESCE(viol.violation_count, 0),
-        'last_violation', viol.last_violation
+        'violation_count',        COALESCE(viol.violation_count_total, 0),
+        'violation_count_12mo',   COALESCE(viol.violation_count_12mo, 0),
+        'max_severity_level_12mo', COALESCE(viol.max_severity_level_12mo, 0),
+        'has_ij_12mo',            COALESCE(viol.has_ij_12mo, FALSE),
+        'last_survey_date',       viol.last_survey_date::text
     )
 ) AS feature
 FROM facilities f
@@ -53,11 +56,7 @@ LEFT JOIN LATERAL (
     ORDER BY year DESC
     LIMIT 1
 ) fin ON true
-LEFT JOIN LATERAL (
-    SELECT COUNT(*)::int AS violation_count, MAX(survey_date) AS last_violation
-    FROM facility_violations
-    WHERE facility_id = f.id
-) viol ON true
+LEFT JOIN facility_violation_rollup viol ON viol.facility_id = f.id
 WHERE f.geom IS NOT NULL
 {type_filter}
 """
@@ -107,6 +106,9 @@ def _run_tippecanoe(geojson_path: str, pmtiles_path: str, layer_slug: str) -> No
         f"--layer={layer_slug}",
         "--attribute-type=gross_revenue:int",
         "--attribute-type=violation_count:int",
+        "--attribute-type=violation_count_12mo:int",
+        "--attribute-type=max_severity_level_12mo:int",
+        "--attribute-type=has_ij_12mo:bool",
         "--attribute-type=certified_medicare:bool",
         "--attribute-type=certified_medicaid:bool",
         geojson_path,
@@ -130,7 +132,7 @@ def _update_layer_record(layer_slug: str, pmtiles_path: str, record_count: int) 
         layer = session.query(Layer).filter_by(slug=layer_slug).first()
         if layer:
             layer.pmtiles_path = pmtiles_path
-            layer.last_generated = datetime.now(timezone.utc)
+            layer.last_generated = datetime.now(UTC)
             layer.record_count = record_count
 
 

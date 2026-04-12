@@ -46,3 +46,9 @@ select = ["E", "F", "I", "N", "W", "UP"]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+markers = [
+    "live: tests that hit real external endpoints (run on demand only)",
+]
+addopts = "-m 'not live'"

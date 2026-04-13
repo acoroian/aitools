@@ -390,13 +390,13 @@ def test_cms_severity_level_covers_grid():
 
 
 def test_cms_severity_to_scope():
-    # Isolated: A, B, D, G, J
+    # Isolated: A, D, G, J
     assert cms_severity_to_scope("A") == "isolated"
     assert cms_severity_to_scope("J") == "isolated"
-    # Pattern: C, E, H, K
+    # Pattern: B, E, H, K
     assert cms_severity_to_scope("E") == "pattern"
     assert cms_severity_to_scope("K") == "pattern"
-    # Widespread: F, I, L
+    # Widespread: C, F, I, L
     assert cms_severity_to_scope("F") == "widespread"
     assert cms_severity_to_scope("L") == "widespread"
     assert cms_severity_to_scope("Z") is None

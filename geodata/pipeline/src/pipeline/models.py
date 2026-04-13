@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import date, datetime
-from typing import Optional
 
 from geoalchemy2 import Geometry
 from sqlalchemy import (
@@ -35,38 +34,38 @@ class Facility(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     type: Mapped[str] = mapped_column(Text, nullable=False)
-    subtype: Mapped[Optional[str]] = mapped_column(Text)
-    address: Mapped[Optional[str]] = mapped_column(Text)
-    city: Mapped[Optional[str]] = mapped_column(Text)
-    county: Mapped[Optional[str]] = mapped_column(Text)
+    subtype: Mapped[str | None] = mapped_column(Text)
+    address: Mapped[str | None] = mapped_column(Text)
+    city: Mapped[str | None] = mapped_column(Text)
+    county: Mapped[str | None] = mapped_column(Text)
     state: Mapped[str] = mapped_column(String(2), default="CA")
-    zip: Mapped[Optional[str]] = mapped_column(String(10))
-    phone: Mapped[Optional[str]] = mapped_column(String(20))
+    zip: Mapped[str | None] = mapped_column(String(10))
+    phone: Mapped[str | None] = mapped_column(String(20))
 
-    lat: Mapped[Optional[float]] = mapped_column(Double)
-    lon: Mapped[Optional[float]] = mapped_column(Double)
-    geom: Mapped[Optional[object]] = mapped_column(Geometry("POINT", srid=4326))
+    lat: Mapped[float | None] = mapped_column(Double)
+    lon: Mapped[float | None] = mapped_column(Double)
+    geom: Mapped[object | None] = mapped_column(Geometry("POINT", srid=4326))
 
     # Source IDs — only cdph_id is unique; NPI/OSHPD/CDSS/CCN can appear on
     # multiple CDPH records (e.g. satellite locations sharing an NPI)
-    cdph_id: Mapped[Optional[str]] = mapped_column(Text, unique=True)
-    cms_npi: Mapped[Optional[str]] = mapped_column(Text)
-    ccn: Mapped[Optional[str]] = mapped_column(Text)        # CMS Certification Number
-    oshpd_id: Mapped[Optional[str]] = mapped_column(Text)
-    cdss_id: Mapped[Optional[str]] = mapped_column(Text)
+    cdph_id: Mapped[str | None] = mapped_column(Text, unique=True)
+    cms_npi: Mapped[str | None] = mapped_column(Text)
+    ccn: Mapped[str | None] = mapped_column(Text)  # CMS Certification Number
+    oshpd_id: Mapped[str | None] = mapped_column(Text)
+    cdss_id: Mapped[str | None] = mapped_column(Text)
 
     # License info
-    license_status: Mapped[Optional[str]] = mapped_column(Text)
-    license_number: Mapped[Optional[str]] = mapped_column(Text)
-    license_expiry: Mapped[Optional[date]] = mapped_column(Date)
+    license_status: Mapped[str | None] = mapped_column(Text)
+    license_number: Mapped[str | None] = mapped_column(Text)
+    license_expiry: Mapped[date | None] = mapped_column(Date)
     certified_medicare: Mapped[bool] = mapped_column(Boolean, default=False)
     certified_medicaid: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Metadata
     primary_source: Mapped[str] = mapped_column(Text, nullable=False)
-    geocode_source: Mapped[Optional[str]] = mapped_column(Text)
-    geocode_confidence: Mapped[Optional[float]] = mapped_column(Float)
-    last_verified: Mapped[Optional[date]] = mapped_column(Date)
+    geocode_source: Mapped[str | None] = mapped_column(Text)
+    geocode_confidence: Mapped[float | None] = mapped_column(Float)
+    last_verified: Mapped[date | None] = mapped_column(Date)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -80,19 +79,23 @@ class FacilityFinancial(Base):
     __table_args__ = (UniqueConstraint("facility_id", "year", "source"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    facility_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("facilities.id"), nullable=False)
+    facility_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("facilities.id"),
+        nullable=False,
+    )
     year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False)
 
-    gross_revenue: Mapped[Optional[int]] = mapped_column(BigInteger)
-    net_revenue: Mapped[Optional[int]] = mapped_column(BigInteger)
-    total_expenses: Mapped[Optional[int]] = mapped_column(BigInteger)
-    medicare_revenue: Mapped[Optional[int]] = mapped_column(BigInteger)
-    medicaid_revenue: Mapped[Optional[int]] = mapped_column(BigInteger)
-    private_revenue: Mapped[Optional[int]] = mapped_column(BigInteger)
-    total_visits: Mapped[Optional[int]] = mapped_column(Integer)
-    total_patients: Mapped[Optional[int]] = mapped_column(Integer)
-    raw_report_id: Mapped[Optional[str]] = mapped_column(Text)
+    gross_revenue: Mapped[int | None] = mapped_column(BigInteger)
+    net_revenue: Mapped[int | None] = mapped_column(BigInteger)
+    total_expenses: Mapped[int | None] = mapped_column(BigInteger)
+    medicare_revenue: Mapped[int | None] = mapped_column(BigInteger)
+    medicaid_revenue: Mapped[int | None] = mapped_column(BigInteger)
+    private_revenue: Mapped[int | None] = mapped_column(BigInteger)
+    total_visits: Mapped[int | None] = mapped_column(Integer)
+    total_patients: Mapped[int | None] = mapped_column(Integer)
+    raw_report_id: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -103,18 +106,22 @@ class FacilityViolation(Base):
     __tablename__ = "facility_violations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    facility_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("facilities.id"), nullable=False)
+    facility_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("facilities.id"),
+        nullable=False,
+    )
     source: Mapped[str] = mapped_column(Text, nullable=False)
-    survey_date: Mapped[Optional[date]] = mapped_column(Date)
-    deficiency_tag: Mapped[Optional[str]] = mapped_column(Text)
-    category: Mapped[Optional[str]] = mapped_column(Text)
-    severity: Mapped[Optional[str]] = mapped_column(Text)
-    scope: Mapped[Optional[str]] = mapped_column(Text)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    corrective_action: Mapped[Optional[str]] = mapped_column(Text)
-    citation_id: Mapped[Optional[str]] = mapped_column(Text)
+    survey_date: Mapped[date | None] = mapped_column(Date)
+    deficiency_tag: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(Text)
+    severity: Mapped[str | None] = mapped_column(Text)
+    scope: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    corrective_action: Mapped[str | None] = mapped_column(Text)
+    citation_id: Mapped[str | None] = mapped_column(Text)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
-    resolved_date: Mapped[Optional[date]] = mapped_column(Date)
+    resolved_date: Mapped[date | None] = mapped_column(Date)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -127,15 +134,15 @@ class Layer(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text)
-    facility_types: Mapped[Optional[list[str]]] = mapped_column(ARRAY(Text))
-    pmtiles_path: Mapped[Optional[str]] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    facility_types: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    pmtiles_path: Mapped[str | None] = mapped_column(Text)
     min_zoom: Mapped[int] = mapped_column(SmallInteger, default=4)
     max_zoom: Mapped[int] = mapped_column(SmallInteger, default=14)
-    last_generated: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    record_count: Mapped[Optional[int]] = mapped_column(Integer)
-    bbox: Mapped[Optional[dict]] = mapped_column(JSONB)
-    attribute_schema: Mapped[Optional[dict]] = mapped_column(JSONB)
+    last_generated: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    record_count: Mapped[int | None] = mapped_column(Integer)
+    bbox: Mapped[dict | None] = mapped_column(JSONB)
+    attribute_schema: Mapped[dict | None] = mapped_column(JSONB)
     access_policy: Mapped[str] = mapped_column(Text, default="public")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

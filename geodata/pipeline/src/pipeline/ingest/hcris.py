@@ -45,8 +45,7 @@ from __future__ import annotations
 import io
 import logging
 import zipfile
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass
 from typing import Literal
 
 import httpx
@@ -64,11 +63,12 @@ ProviderType = Literal["hha", "hospice"]
 @dataclass
 class RevenueSpec:
     """Worksheet coordinates for a revenue line item."""
+
     wkst: str
     line: str
     col: str
-    field: str          # FacilityFinancial attribute name
-    scale: int = 1      # multiply raw value by this (some forms report in $1000s)
+    field: str  # FacilityFinancial attribute name
+    scale: int = 1  # multiply raw value by this (some forms report in $1000s)
 
 
 # Revenue lines to extract per provider type.
@@ -129,7 +129,10 @@ def _parse_rpt(zf: zipfile.ZipFile, rpt_name: str) -> pd.DataFrame:
     log.info("Parsing RPT file: %s", rpt_name)
     with zf.open(rpt_name) as f:
         df = pd.read_csv(
-            f, dtype=str, low_memory=False, header=None,
+            f,
+            dtype=str,
+            low_memory=False,
+            header=None,
             usecols=[0, 2, 4, 6],
             names=["REPT_REC_NUM", "PRVDR_NUM", "RPT_STUS_CD", "FY_END_DT"],
         )
@@ -159,9 +162,7 @@ def _parse_nmrc_for_specs(
     log.info("Parsing NMRC file: %s (filtering to %d reports)", nmrc_name, len(valid_rpt_nums))
 
     # Build a lookup set of (wkst, line, col) → field name
-    coord_map: dict[tuple[str, str, str], str] = {
-        (s.wkst, s.line, s.col): s.field for s in specs
-    }
+    coord_map: dict[tuple[str, str, str], str] = {(s.wkst, s.line, s.col): s.field for s in specs}
 
     collected: list[dict] = []
     chunk_size = 200_000
@@ -169,8 +170,12 @@ def _parse_nmrc_for_specs(
     nmrc_cols = ["REPT_REC_NUM", "WKST_CD", "LINE_NUM", "CLMN_NUM", "ITM_VAL_NUM"]
     with zf.open(nmrc_name) as f:
         for chunk in pd.read_csv(
-            f, dtype=str, low_memory=False, chunksize=chunk_size,
-            header=None, names=nmrc_cols,
+            f,
+            dtype=str,
+            low_memory=False,
+            chunksize=chunk_size,
+            header=None,
+            names=nmrc_cols,
         ):
             # Filter to relevant report IDs first (big reduction)
             chunk = chunk[chunk["REPT_REC_NUM"].isin(valid_rpt_nums)]
@@ -208,11 +213,7 @@ def _parse_nmrc_for_specs(
 def _load_ca_ccns() -> dict[str, str]:
     """Return {ccn: facility_id} for all CA facilities that have a CCN."""
     with get_session() as session:
-        rows = (
-            session.query(Facility.ccn, Facility.id)
-            .filter(Facility.ccn.isnot(None))
-            .all()
-        )
+        rows = session.query(Facility.ccn, Facility.id).filter(Facility.ccn.isnot(None)).all()
     return {r.ccn.strip(): str(r.id) for r in rows}
 
 
@@ -329,6 +330,9 @@ def run(provider_type: ProviderType) -> dict[str, int]:
 
     log.info(
         "HCRIS %s upserted=%d skipped=%d no_ccn_match=%d",
-        provider_type, upserted, skipped, no_match,
+        provider_type,
+        upserted,
+        skipped,
+        no_match,
     )
     return {"upserted": upserted, "skipped": skipped, "no_ccn_match": no_match}

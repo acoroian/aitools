@@ -6,7 +6,6 @@ The pmtiles format uses HTTP range requests to read only the needed tile bytes
 from a single archive file — this route implements that same protocol.
 """
 
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Response

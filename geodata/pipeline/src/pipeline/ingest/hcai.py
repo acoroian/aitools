@@ -121,8 +121,7 @@ def run() -> dict[str, int]:
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(
-            f"HCAI file missing required columns {missing}. "
-            f"Available: {list(df.columns)[:30]}"
+            f"HCAI file missing required columns {missing}. Available: {list(df.columns)[:30]}"
         )
 
     index = _load_facility_index()
@@ -169,9 +168,7 @@ def run() -> dict[str, int]:
                 .first()
             )
             if existing is None:
-                existing = FacilityFinancial(
-                    facility_id=facility_id, year=year, source=source_tag
-                )
+                existing = FacilityFinancial(facility_id=facility_id, year=year, source=source_tag)
                 session.add(existing)
 
             for hcai_col, field in _REVENUE_COLS.items():

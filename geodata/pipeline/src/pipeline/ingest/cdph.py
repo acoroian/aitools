@@ -104,9 +104,7 @@ def normalize(df: pd.DataFrame) -> pd.DataFrame:
     out["lon"] = pd.to_numeric(df["LONGITUDE"], errors="coerce")
 
     # License expiry
-    out["license_expiry"] = pd.to_datetime(
-        df["LICENSE_EXPIRATION_DATE"], errors="coerce"
-    ).dt.date
+    out["license_expiry"] = pd.to_datetime(df["LICENSE_EXPIRATION_DATE"], errors="coerce").dt.date
 
     # Optional cross-reference IDs (may be blank for many rows)
     out["ccn"] = df["CCN"].str.strip() if "CCN" in df.columns else None
@@ -128,9 +126,10 @@ def upsert(df: pd.DataFrame) -> tuple[int, int]:
     inserted = updated = 0
 
     with get_session() as session:
+        cdph_ids = df["cdph_id"].tolist()
         existing: dict[str, Facility] = {
             f.cdph_id: f
-            for f in session.query(Facility).filter(Facility.cdph_id.in_(df["cdph_id"].tolist())).all()
+            for f in session.query(Facility).filter(Facility.cdph_id.in_(cdph_ids)).all()
         }
 
         for _, row in df.iterrows():

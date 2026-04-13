@@ -12,6 +12,7 @@ def ingest_cdph(self):  # type: ignore[no-untyped-def]
     """Download and upsert CA CDPH Healthcare Facility Locations."""
     try:
         from pipeline.ingest.cdph import run
+
         result = run()
         log.info("CDPH ingest complete: %s", result)
         return result
@@ -25,6 +26,7 @@ def ingest_crosswalk(self):  # type: ignore[no-untyped-def]
     """Apply the CA Licensed Facility Crosswalk (CDPH ↔ CMS NPI ↔ OSHPD)."""
     try:
         from pipeline.crosswalk.resolver import run
+
         result = run()
         log.info("Crosswalk apply complete: %s", result)
         return result
@@ -38,6 +40,7 @@ def generate_tiles(self, layer_slug: str):  # type: ignore[no-untyped-def]
     """Generate PMTiles for a single layer and save to TILES_DIR."""
     try:
         from pipeline.tiles.generate import run
+
         result = run(layer_slug)
         log.info("Tile generation complete for %s: %s", layer_slug, result)
         return result
@@ -51,6 +54,7 @@ def ingest_hcris_hha(self):  # type: ignore[no-untyped-def]
     """Download and upsert CMS HCRIS Home Health Agency cost reports."""
     try:
         from pipeline.ingest.hcris import run
+
         result = run("hha")
         log.info("HCRIS HHA ingest complete: %s", result)
         return result
@@ -69,6 +73,7 @@ def ingest_hcris_hospice(self):  # type: ignore[no-untyped-def]
     """Download and upsert CMS HCRIS Hospice cost reports."""
     try:
         from pipeline.ingest.hcris import run
+
         result = run("hospice")
         log.info("HCRIS Hospice ingest complete: %s", result)
         return result
@@ -82,6 +87,7 @@ def ingest_hcai(self):  # type: ignore[no-untyped-def]
     """Download and upsert CA HCAI annual SNF financial disclosure data."""
     try:
         from pipeline.ingest.hcai import run
+
         result = run()
         log.info("HCAI ingest complete: %s", result)
         return result
@@ -121,6 +127,7 @@ def ingest_cms_nh_compare(self):  # type: ignore[no-untyped-def]
     """Download and upsert CMS Nursing Home Health Deficiencies (SNF, monthly)."""
     try:
         from pipeline.ingest.cms_nh_compare import run
+
         result = run()
         log.info("CMS NH Compare ingest complete: %s", result)
         refresh_violation_rollup.delay()
@@ -140,6 +147,7 @@ def ingest_cdph_sea(self):  # type: ignore[no-untyped-def]
     """Download and upsert CDPH State Enforcement Actions (CA, annual)."""
     try:
         from pipeline.ingest.cdph_sea import run
+
         result = run()
         log.info("CDPH SEA ingest complete: %s", result)
         refresh_violation_rollup.delay()

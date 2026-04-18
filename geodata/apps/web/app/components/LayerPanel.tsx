@@ -1,5 +1,13 @@
 import type { Layer } from "~/lib/api";
 
+const LAYER_COLORS: Record<string, string> = {
+  "home-health": "#3b82f6",
+  "hospice": "#8b5cf6",
+  "daycare": "#f59e0b",
+  "skilled-nursing": "#10b981",
+  "all-care": "#6b7280",
+};
+
 interface Props {
   layers: Layer[];
   visibleLayers: Set<string>;
@@ -20,6 +28,16 @@ export default function LayerPanel({ layers, visibleLayers, onToggle }: Props) {
             type="checkbox"
             checked={visibleLayers.has(layer.slug)}
             onChange={() => onToggle(layer.slug)}
+          />
+          <span
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              backgroundColor: LAYER_COLORS[layer.slug] ?? "#6b7280",
+              flexShrink: 0,
+              border: "1px solid rgba(0,0,0,0.15)",
+            }}
           />
           <span>{layer.name}</span>
           {layer.record_count != null && (

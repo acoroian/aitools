@@ -124,19 +124,28 @@ const MapComponent = forwardRef<MapHandle, Props>(function MapComponent(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Toggle layer visibility
+  // Toggle layer visibility — wait for style to be loaded
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    layers.forEach((layer) => {
-      if (map.getLayer(layer.slug)) {
-        map.setLayoutProperty(
-          layer.slug,
-          "visibility",
-          visibleLayers.has(layer.slug) ? "visible" : "none"
-        );
-      }
-    });
+    if (!map) return;
+
+    const applyVisibility = () => {
+      layers.forEach((layer) => {
+        if (map.getLayer(layer.slug)) {
+          map.setLayoutProperty(
+            layer.slug,
+            "visibility",
+            visibleLayers.has(layer.slug) ? "visible" : "none"
+          );
+        }
+      });
+    };
+
+    if (map.isStyleLoaded()) {
+      applyVisibility();
+    } else {
+      map.once("load", applyVisibility);
+    }
   }, [layers, visibleLayers]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;

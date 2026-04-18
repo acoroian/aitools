@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect, type ComponentType } from "react";
 import { useLoaderData } from "@remix-run/react";
 import type { LoaderFunctionArgs } from "@remix-run/node";
 import { ClientOnly } from "~/lib/client-only";
@@ -7,6 +7,7 @@ import { fetchLayers, filterFacilities, getFacility } from "~/lib/api";
 import LayerPanel from "~/components/LayerPanel";
 import FilterPanel from "~/components/FilterPanel";
 import FacilityDetail from "~/components/FacilityDetail";
+import type { MapHandle } from "~/components/Map";
 
 export async function loader(_: LoaderFunctionArgs) {
   try {
@@ -26,8 +27,7 @@ export default function Index() {
   const [resultCount, setResultCount] = useState<number | null>(null);
   const [selectedFacility, setSelectedFacility] = useState<Record<string, unknown> | null>(null);
   const [spatialFilter, setSpatialFilter] = useState<{ type: "Polygon"; coordinates: number[][][] } | null>(null);
-  const mapRef = useRef<{ getMap: () => unknown } | null>(null);
-  const lastFilterRef = useRef<FilterRequest>({});
+  const mapRef = useRef<MapHandle | null>(null);
 
   const toggleLayer = useCallback((slug: string) => {
     setVisibleLayers((prev) => {
@@ -39,7 +39,6 @@ export default function Index() {
 
   const handleFilter = useCallback(async (req: FilterRequest) => {
     const fullReq = { ...req, ...(spatialFilter ? { spatial: spatialFilter } : {}) };
-    lastFilterRef.current = fullReq;
     try {
       const data = await filterFacilities({ ...fullReq, limit: 2000 });
       const ids = new Set<string>(data.features.map((f: { properties: { id: string } }) => f.properties.id));
@@ -75,27 +74,17 @@ export default function Index() {
   return (
     <div style={{ position: "relative", width: "100vw", height: "100vh" }}>
       <ClientOnly fallback={<div style={{ width: "100%", height: "100%", background: "#f3f4f6" }} />}>
-        {() => {
-          const MapComponent = require("~/components/Map").default;
-          const DrawControl = require("~/components/DrawControl").default;
-          const map = mapRef.current?.getMap?.() ?? null;
-          return (
-            <>
-              <MapComponent
-                ref={mapRef}
-                layers={layers}
-                visibleLayers={visibleLayers}
-                highlightIds={highlightIds}
-                onFacilityClick={handleFacilityClick}
-              />
-              <DrawControl
-                map={map}
-                onPolygonDrawn={handlePolygonDrawn}
-                onClear={handleClearSpatial}
-              />
-            </>
-          );
-        }}
+        {() => (
+          <LazyMap
+            mapRef={mapRef}
+            layers={layers}
+            visibleLayers={visibleLayers}
+            highlightIds={highlightIds}
+            onFacilityClick={handleFacilityClick}
+            onPolygonDrawn={handlePolygonDrawn}
+            onClearSpatial={handleClearSpatial}
+          />
+        )}
       </ClientOnly>
 
       <LayerPanel layers={layers} visibleLayers={visibleLayers} onToggle={toggleLayer} />
@@ -112,5 +101,53 @@ export default function Index() {
         />
       )}
     </div>
+  );
+}
+
+/** Dynamically imports Map + DrawControl to avoid SSR issues with MapLibre. */
+function LazyMap({
+  mapRef,
+  layers,
+  visibleLayers,
+  highlightIds,
+  onFacilityClick,
+  onPolygonDrawn,
+  onClearSpatial,
+}: {
+  mapRef: React.RefObject<MapHandle | null>;
+  layers: Layer[];
+  visibleLayers: Set<string>;
+  highlightIds: Set<string>;
+  onFacilityClick: (id: string) => void;
+  onPolygonDrawn: (polygon: { type: "Polygon"; coordinates: number[][][] }) => void;
+  onClearSpatial: () => void;
+}) {
+  const [MapComponent, setMapComponent] = useState<ComponentType<any> | null>(null);
+  const [DrawControl, setDrawControl] = useState<ComponentType<any> | null>(null);
+
+  useEffect(() => {
+    import("~/components/Map").then((mod) => setMapComponent(() => mod.default));
+    import("~/components/DrawControl").then((mod) => setDrawControl(() => mod.default));
+  }, []);
+
+  if (!MapComponent) return <div style={{ width: "100%", height: "100%", background: "#f3f4f6" }} />;
+
+  return (
+    <>
+      <MapComponent
+        ref={mapRef}
+        layers={layers}
+        visibleLayers={visibleLayers}
+        highlightIds={highlightIds}
+        onFacilityClick={onFacilityClick}
+      />
+      {DrawControl && (
+        <DrawControl
+          map={mapRef.current?.getMap?.() ?? null}
+          onPolygonDrawn={onPolygonDrawn}
+          onClear={onClearSpatial}
+        />
+      )}
+    </>
   );
 }

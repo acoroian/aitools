@@ -8,5 +8,14 @@ class Settings(BaseSettings):
     tiles_dir: str = "/tmp/geodata/tiles"
     jwt_secret: str = "dev-secret-change-in-prod"
 
+    # Stripe billing (optional — only needed for paid plans)
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_ids: dict[str, str] = {
+        "starter": "",
+        "pro": "",
+        "enterprise": "",
+    }
+
 
 settings = Settings()

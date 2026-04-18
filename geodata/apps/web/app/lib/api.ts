@@ -21,11 +21,17 @@ export interface FilterRequest {
   county?: string;
   gross_revenue_min?: number;
   gross_revenue_max?: number;
+  violation_count_min?: number;
   violation_count_max?: number;
+  violation_count_12mo_min?: number;
+  max_severity_level_min?: number;
+  has_ij_12mo?: boolean;
+  survey_date_after?: string;
   certified_medicare?: boolean;
   certified_medicaid?: boolean;
   spatial?: { type: "Polygon"; coordinates: number[][][] };
   limit?: number;
+  year?: number;
 }
 
 export async function fetchLayers(): Promise<Layer[]> {

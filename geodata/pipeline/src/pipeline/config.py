@@ -61,5 +61,16 @@ class Settings(BaseSettings):
         "https://data.chhs.ca.gov/api/3/action/package_show?id=1e1e2904-1bfb-448c-97e1-cf3e228c9159"
     )
 
+    # CA CDSS Community Care Licensing — facility list and violations
+    # Bulk download from: https://www.ccld.dss.ca.gov/carefacilitysearch/
+    cdss_facility_csv_url: str = (
+        "https://data.chhs.ca.gov/dataset/community-care-licensing-facility-information"
+        "/resource/locations.csv"
+    )
+    cdss_violations_csv_url: str = (
+        "https://data.chhs.ca.gov/dataset/community-care-licensing-facility-information"
+        "/resource/violations.csv"
+    )
+
 
 settings = Settings()

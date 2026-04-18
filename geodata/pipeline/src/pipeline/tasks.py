@@ -159,6 +159,45 @@ def ingest_cdph_sea(self):  # type: ignore[no-untyped-def]
 
 @app.task(
     bind=True,
+    max_retries=3,
+    default_retry_delay=600,
+    name="pipeline.tasks.ingest_cdss",
+)
+def ingest_cdss(self):  # type: ignore[no-untyped-def]
+    """Download, geocode, and upsert CA CDSS Community Care Licensing facilities."""
+    try:
+        from pipeline.ingest.cdss import run
+
+        result = run()
+        log.info("CDSS ingest complete: %s", result)
+        return result
+    except Exception as exc:
+        log.exception("CDSS ingest failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=600,
+    name="pipeline.tasks.ingest_cdss_violations",
+)
+def ingest_cdss_violations(self):  # type: ignore[no-untyped-def]
+    """Download and upsert CA CDSS CCL inspection/violation data."""
+    try:
+        from pipeline.ingest.cdss_violations import run
+
+        result = run()
+        log.info("CDSS violations ingest complete: %s", result)
+        refresh_violation_rollup.delay()
+        return result
+    except Exception as exc:
+        log.exception("CDSS violations ingest failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@app.task(
+    bind=True,
     max_retries=2,
     default_retry_delay=60,
     name="pipeline.tasks.refresh_violation_rollup",

@@ -3,7 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import facilities, health, layers, tiles
+from api.routes import admin, billing, facilities, health, layers, tiles
 
 logging.basicConfig(level=logging.INFO)
 
@@ -25,3 +25,5 @@ app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(layers.router, prefix="/layers", tags=["layers"])
 app.include_router(facilities.router, prefix="/facilities", tags=["facilities"])
 app.include_router(tiles.router, prefix="/tiles", tags=["tiles"])
+app.include_router(admin.router, prefix="/admin", tags=["admin"])
+app.include_router(billing.router, prefix="/billing", tags=["billing"])

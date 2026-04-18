@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
 import maplibregl from "maplibre-gl";
 import { Protocol } from "pmtiles";
 import type { Layer } from "~/lib/api";
@@ -9,10 +9,18 @@ import { pmtilesUrl } from "~/lib/api";
 const TYPE_COLORS: Record<string, string> = {
   home_health: "#3b82f6",
   hospice: "#8b5cf6",
-  daycare: "#f59e0b",
+  daycare_center: "#f59e0b",
+  daycare_family: "#f59e0b",
   snf: "#10b981",
+  rcfe: "#14b8a6",
+  clinic: "#ec4899",
+  hospital: "#ef4444",
   default: "#6b7280",
 };
+
+export interface MapHandle {
+  getMap: () => maplibregl.Map | null;
+}
 
 interface Props {
   layers: Layer[];
@@ -21,9 +29,16 @@ interface Props {
   onFacilityClick: (id: string) => void;
 }
 
-export default function Map({ layers, visibleLayers, highlightIds, onFacilityClick }: Props) {
+const MapComponent = forwardRef<MapHandle, Props>(function MapComponent(
+  { layers, visibleLayers, highlightIds, onFacilityClick },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    getMap: () => mapRef.current,
+  }));
 
   // Register pmtiles:// protocol once
   useEffect(() => {
@@ -77,12 +92,7 @@ export default function Map({ layers, visibleLayers, highlightIds, onFacilityCli
             ],
             "circle-stroke-width": 1,
             "circle-stroke-color": "#fff",
-            "circle-opacity": [
-              "case",
-              ["==", ["get", "id"], ""],
-              1,
-              1,
-            ],
+            "circle-opacity": 1,
           },
         });
       });
@@ -100,11 +110,13 @@ export default function Map({ layers, visibleLayers, highlightIds, onFacilityCli
     });
 
     // Pointer cursor on hover
-    map.on("mouseenter", layers.map((l) => l.slug).join(","), () => {
-      map.getCanvas().style.cursor = "pointer";
-    });
-    map.on("mouseleave", layers.map((l) => l.slug).join(","), () => {
-      map.getCanvas().style.cursor = "";
+    layers.forEach((l) => {
+      map.on("mouseenter", l.slug, () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", l.slug, () => {
+        map.getCanvas().style.cursor = "";
+      });
     });
 
     mapRef.current = map;
@@ -128,4 +140,6 @@ export default function Map({ layers, visibleLayers, highlightIds, onFacilityCli
   }, [layers, visibleLayers]);
 
   return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
-}
+});
+
+export default MapComponent;

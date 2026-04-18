@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+*.egg
+
+# uv
+uv.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node
+node_modules/
+.npm/
+
+# Remix
+apps/web/.cache/
+apps/web/build/
+apps/web/public/build/
+
+# Expo / React Native
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/mobile/ios/
+apps/mobile/android/
+
+# Tiles (generated — not committed)
+/tmp/geodata/
+*.pmtiles
+*.mbtiles
+
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# Docker
+.docker/
+
+# Alembic
+*.pyc

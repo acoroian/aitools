@@ -73,13 +73,14 @@ def parse_csv(raw: bytes) -> pd.DataFrame:
     """Parse raw bytes into a DataFrame, preserving strings for IDs."""
     df = pd.read_csv(
         io.BytesIO(raw),
-        dtype={
-            "cms_certification_number_ccn": str,
-            "deficiency_tag_number": str,
-            "zip_code": str,
-        },
+        dtype=str,
         low_memory=False,
     )
+    # Normalize column names: "CMS Certification Number (CCN)" → "cms_certification_number_ccn"
+    df.columns = [
+        c.strip().lower().replace(" ", "_").replace("(", "").replace(")", "").replace("/", "_")
+        for c in df.columns
+    ]
     required = {
         "cms_certification_number_ccn",
         "state",

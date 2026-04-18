@@ -40,6 +40,16 @@ app.conf.update(
             "task": "pipeline.tasks.ingest_cdph_sea",
             "schedule": crontab(month_of_year="7", day_of_month="15", hour="6", minute="0"),
         },
+        # CDSS Community Care Licensing — monthly, 10th of month
+        "ingest-cdss-monthly": {
+            "task": "pipeline.tasks.ingest_cdss",
+            "schedule": crontab(day_of_month="10", hour="2", minute="0"),
+        },
+        # CDSS CCL Violations — monthly, 10th of month (after facility ingest)
+        "ingest-cdss-violations-monthly": {
+            "task": "pipeline.tasks.ingest_cdss_violations",
+            "schedule": crontab(day_of_month="10", hour="4", minute="0"),
+        },
         # Regenerate tiles nightly
         "generate-tiles-nightly": {
             "task": "pipeline.tasks.generate_all_tiles",

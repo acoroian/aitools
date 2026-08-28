@@ -19,7 +19,7 @@ python trades.py --days 30
 ```
 
 Options: `--sources house,senate,insider` (default: all three), `--no-cache`,
-`--output-dir PATH`, `--quiet`. See `docs/superpowers/specs/2026-08-27-congress-trades-design.md`
+`--output-dir PATH`, `--quiet`. See [`../docs/superpowers/specs/2026-08-27-congress-trades-design.md`](../docs/superpowers/specs/2026-08-27-congress-trades-design.md)
 for the data-source details and known limitations (disclosure amounts
 are bands, not exact dollars; House PDF parsing is best-effort; Senate
 parsing was built against the documented schema, not a live capture —

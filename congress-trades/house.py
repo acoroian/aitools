@@ -12,6 +12,7 @@ against every possible PTR layout.
 from __future__ import annotations
 
 import io
+import logging
 import re
 import zipfile
 from datetime import date, timedelta
@@ -20,7 +21,10 @@ from xml.etree import ElementTree as ET
 
 import pdfplumber
 
+from http_client import courtesy_delay
 from models import Trade
+
+logger = logging.getLogger(__name__)
 
 CLERK_BASE = "https://disclosures-clerk.house.gov/public_disc"
 TYPE_LABELS = {"P": "buy", "S": "sell", "E": "other"}
@@ -35,14 +39,33 @@ _ASSET_CODE_RE = re.compile(r"\[(ST|OT|GS|MF|CO|CT|OP|PS|RP)\]")
 _PAREN_TICKER_RE = re.compile(r"\(([A-Z][A-Z.&]{0,6})\)")
 _BARE_TICKER_RE = re.compile(r"(?<![\w$])([A-Z]{2,6})(?![\w])")
 
+# Maximum character distance between an asset-type-code bracket (e.g. "[ST]")
+# and the amount-pattern match it's paired with. The real fixture's worst
+# pairing distance is 86 chars; 300 is a generous cutoff that still rejects
+# pairing a row with a malformed amount to some other row's amount entirely.
+_MAX_PAIRING_DISTANCE = 300
+
 
 def _find_ticker(text: str, code_match: re.Match) -> Optional[str]:
+    """Return the ticker associated with an asset-type-code bracket.
+
+    A parenthesized ticker — e.g. "(AAPL)" — is trusted anywhere in the
+    preceding 200 chars, since the parens make it unambiguous even when the
+    asset description wraps onto the line above the bracket. A bare
+    uppercase word with no parentheses (e.g. an ETF quoted as "NYSEARCA:
+    DIA [OT]") is only trusted when it's on the *same line* as the bracket —
+    never picked out of preceding prose, which can hand back an arbitrary
+    capitalized word (e.g. "LLC") that isn't a ticker at all.
+    """
     start = max(0, code_match.start() - 200)
     window = text[start : code_match.start()]
     paren_matches = _PAREN_TICKER_RE.findall(window)
     if paren_matches:
         return paren_matches[-1]
-    bare_matches = _BARE_TICKER_RE.findall(window)
+
+    line_start = text.rfind("\n", 0, code_match.start()) + 1
+    same_line = text[line_start : code_match.start()]
+    bare_matches = _BARE_TICKER_RE.findall(same_line)
     if bare_matches:
         return bare_matches[-1]
     return None
@@ -52,7 +75,16 @@ def parse_ptr_pdf(pdf_bytes: bytes, person: str, filed_date: date, link: str) ->
     """Best-effort extraction of transaction line items from a House PTR PDF."""
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+    return _parse_ptr_text(text, person=person, filed_date=filed_date, link=link)
 
+
+def _parse_ptr_text(text: str, person: str, filed_date: date, link: str) -> list[Trade]:
+    """Extract transaction line items from already-extracted PTR text.
+
+    Split out from parse_ptr_pdf so the proximity-pairing logic can be
+    exercised directly against crafted text in tests, without needing to
+    fabricate a real PDF.
+    """
     amount_matches = list(_AMOUNT_RE.finditer(text))
     code_matches = list(_ASSET_CODE_RE.finditer(text))
     if not amount_matches or not code_matches:
@@ -61,6 +93,8 @@ def parse_ptr_pdf(pdf_bytes: bytes, person: str, filed_date: date, link: str) ->
     trades: list[Trade] = []
     for code_match in code_matches:
         amount_match = min(amount_matches, key=lambda m: abs(m.start() - code_match.start()))
+        if abs(amount_match.start() - code_match.start()) > _MAX_PAIRING_DISTANCE:
+            continue  # no amount close enough to trust — don't guess
         ticker = _find_ticker(text, code_match)
         if not ticker:
             continue
@@ -150,6 +184,8 @@ def fetch_trades(session, days: int = 30, year: Optional[int] = None) -> list[Tr
                     link=pdf_url,
                 )
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("skipping filing %s: %s", pdf_url, exc)
             continue  # one bad filing must not sink the whole fetch
+        courtesy_delay()
     return trades

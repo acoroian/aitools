@@ -10,13 +10,17 @@ prohibition_agreement=1 to /search/home/. Only after that does
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, timedelta
 from typing import Optional
 
 from bs4 import BeautifulSoup
 
+from http_client import courtesy_delay
 from models import Trade
+
+logger = logging.getLogger(__name__)
 
 EFD_BASE = "https://efdsearch.senate.gov"
 SEARCH_PAGE_URL = f"{EFD_BASE}/search/"
@@ -56,12 +60,19 @@ def parse_ptr_html(html: str, person: str, filed_date: date, link: str) -> list[
     if table is None:
         return []
 
-    headers = [th.get_text(strip=True).lower() for th in table.find("thead").find_all("th")]
+    # html.parser (unlike a browser or lxml) does not synthesize missing
+    # <thead>/<tbody> wrapper tags — fall back to searching the whole table
+    # for <th>/<tr> elements directly when the wrapper is absent.
+    header_container = table.find("thead") or table
+    headers = [th.get_text(strip=True).lower() for th in header_container.find_all("th")]
     fields = [_HEADER_TO_FIELD.get(h) for h in headers]
 
+    body_container = table.find("tbody") or table
     trades: list[Trade] = []
-    for row in table.find("tbody").find_all("tr"):
+    for row in body_container.find_all("tr"):
         cells = [td.get_text(strip=True) for td in row.find_all("td")]
+        if not cells:
+            continue  # header row (or other non-data row) picked up by the fallback search
         row_data = {field: value for field, value in zip(fields, cells) if field}
 
         ticker = row_data.get("ticker", "").strip()
@@ -182,6 +193,8 @@ def fetch_trades(session, days: int = 30) -> list[Trade]:
                     link=filing["ptr_url"],
                 )
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("skipping filing %s: %s", filing["ptr_url"], exc)
             continue  # one bad filing must not sink the whole fetch
+        courtesy_delay()
     return trades

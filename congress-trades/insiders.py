@@ -4,12 +4,16 @@ insiders.py — Fetch and normalize SEC EDGAR Form 4 insider-trading filings.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, timedelta
 from typing import Optional
 from xml.etree import ElementTree as ET
 
+from http_client import courtesy_delay
 from models import Trade
+
+logger = logging.getLogger(__name__)
 
 EDGAR_BASE = "https://www.sec.gov"
 GETCURRENT_URL = (
@@ -153,6 +157,8 @@ def fetch_trades(session, days: int = 30) -> list[Trade]:
             for t in filing_trades:
                 t.filed_date = entry["filed_date"]
             trades.extend(filing_trades)
-        except Exception:
+        except Exception as exc:
+            logger.warning("skipping filing %s: %s", entry["index_url"], exc)
             continue  # one bad filing must not sink the whole fetch
+        courtesy_delay()
     return trades

@@ -1,6 +1,6 @@
 import json
 from datetime import date, datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from senate import SenateUnavailableError, fetch_trades, parse_ptr_html
 
@@ -46,6 +46,40 @@ def test_parses_transaction_table_by_header_name():
 
     assert sell.ticker == "MSFT"
     assert sell.transaction_type == "sell"
+
+
+NO_WRAPPER_TAGS_HTML = """
+<html><body>
+<table class="table">
+<tr>
+<th>Transaction Date</th><th>Owner</th><th>Ticker</th><th>Asset Name</th>
+<th>Asset Type</th><th>Type</th><th>Amount</th><th>Comment</th>
+</tr>
+<tr>
+<td>08/12/2026</td><td>Self</td><td>NVDA</td><td>NVIDIA Corporation</td>
+<td>Stock</td><td>Purchase</td><td>$15,001 - $50,000</td><td>--</td>
+</tr>
+</table>
+</body></html>
+"""
+
+
+def test_parses_table_missing_thead_and_tbody_wrapper_tags():
+    """html.parser does not synthesize missing <thead>/<tbody> the way a
+    browser or lxml would — parse_ptr_html must not crash on a real table
+    that only has bare <tr>/<th>/<td> elements."""
+    trades = parse_ptr_html(
+        NO_WRAPPER_TAGS_HTML,
+        person="Jane Example",
+        filed_date=date(2026, 8, 13),
+        link="https://efdsearch.senate.gov/search/view/ptr/example/",
+    )
+
+    assert len(trades) == 1
+    assert trades[0].ticker == "NVDA"
+    assert trades[0].transaction_type == "buy"
+    assert trades[0].amount_low == 15001
+    assert trades[0].amount_high == 50000
 
 
 SEARCH_PAGE_HTML = """
@@ -130,3 +164,66 @@ def test_fetch_trades_raises_when_site_is_under_maintenance():
         assert False, "expected SenateUnavailableError"
     except SenateUnavailableError:
         pass
+
+
+TWO_FILINGS_SEARCH_RESULTS_JSON = json.dumps(
+    {
+        "data": [
+            [
+                "<a href='/search/view/annual/x/'>Broken Senator</a>",
+                "Senator",
+                "<a href='/search/view/ptr/broken/'>Periodic Transaction Report</a>",
+                "08/13/2026",
+            ],
+            [
+                "<a href='/search/view/annual/x/'>Jane Example</a>",
+                "Senator",
+                "<a href='/search/view/ptr/example/'>Periodic Transaction Report</a>",
+                "08/13/2026",
+            ],
+        ],
+        "recordsTotal": 2,
+        "recordsFiltered": 2,
+    }
+)
+
+
+def test_fetch_trades_skips_one_bad_filing_and_still_returns_the_next():
+    """One filing's PTR page fetch raises; a second, good filing must still
+    make it through — and the failure must be logged, not silently swallowed."""
+    session = MagicMock()
+    session.cookies = {"csrftoken": "cookievalue"}
+
+    def fake_get(url, **kwargs):
+        if "view/ptr/broken" in url:
+            raise ConnectionError("simulated fetch failure")
+        response = MagicMock()
+        response.status_code = 200
+        if url == "https://efdsearch.senate.gov/search/":
+            response.text = SEARCH_PAGE_HTML
+        elif "view/ptr/example" in url:
+            response.text = SAMPLE_PTR_HTML
+        return response
+
+    def fake_post(url, **kwargs):
+        response = MagicMock()
+        response.status_code = 200
+        response.headers = {"Content-Type": "application/json"}
+        if url == "https://efdsearch.senate.gov/search/home/":
+            response.text = "ok"
+        elif url == "https://efdsearch.senate.gov/search/report/data/":
+            response.text = TWO_FILINGS_SEARCH_RESULTS_JSON
+            response.json.return_value = json.loads(TWO_FILINGS_SEARCH_RESULTS_JSON)
+        return response
+
+    session.get.side_effect = fake_get
+    session.post.side_effect = fake_post
+
+    with patch("senate.courtesy_delay"), \
+         patch("senate.logger") as mock_logger:
+        trades = fetch_trades(session, days=7)
+
+    assert len(trades) == 2
+    assert all(t.person == "Jane Example" for t in trades)
+    mock_logger.warning.assert_called_once()
+    assert "broken" in mock_logger.warning.call_args.args[1]

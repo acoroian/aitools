@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from insiders import parse_form4_xml, fetch_trades
 
@@ -83,3 +83,58 @@ def test_fetch_trades_walks_feed_then_index_then_xml():
     assert len(trades) == 1
     assert trades[0].ticker == "ATOM"
     assert "form4.xml" in trades[0].link
+
+
+TWO_ENTRY_ATOM_FEED = """<?xml version="1.0" encoding="ISO-8859-1"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<entry>
+<title>4 - Broken Filer (0003333333) (Reporting)</title>
+<link rel="alternate" type="text/html" href="https://www.sec.gov/Archives/edgar/data/3333333/000333333326000001/0003333333-26-000001-index.htm"/>
+<summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; {filed} &lt;b&gt;AccNo:&lt;/b&gt; 0003333333-26-000001 &lt;b&gt;Size:&lt;/b&gt; 5 KB</summary>
+<id>urn:tag:sec.gov,2008:accession-number=0003333333-26-000001</id>
+</entry>
+<entry>
+<title>4 - Someone Q (0002222222) (Reporting)</title>
+<link rel="alternate" type="text/html" href="https://www.sec.gov/Archives/edgar/data/2222222/000222222226000001/0002222222-26-000001-index.htm"/>
+<summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; {filed} &lt;b&gt;AccNo:&lt;/b&gt; 0002222222-26-000001 &lt;b&gt;Size:&lt;/b&gt; 5 KB</summary>
+<id>urn:tag:sec.gov,2008:accession-number=0002222222-26-000001</id>
+</entry>
+</feed>
+"""
+
+
+def test_fetch_trades_skips_one_bad_filing_and_still_returns_the_next():
+    """One filing's index.json fetch raises; a second, good filing must
+    still make it through — and the failure must be logged, not silently
+    swallowed."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    feed_xml = TWO_ENTRY_ATOM_FEED.format(filed=today)
+    form4_xml = FIXTURE.read_bytes()
+
+    session = MagicMock()
+
+    def fake_get(url, **kwargs):
+        if "000333333326000001" in url:
+            raise ConnectionError("simulated fetch failure")
+        response = MagicMock()
+        response.status_code = 200
+        if "getcurrent" in url:
+            response.text = feed_xml
+            response.content = feed_xml.encode()
+        elif url.endswith("index.json"):
+            response.text = INDEX_JSON
+            response.content = INDEX_JSON.encode()
+        elif url.endswith("form4.xml"):
+            response.content = form4_xml
+        return response
+
+    session.get.side_effect = fake_get
+
+    with patch("insiders.courtesy_delay"), \
+         patch("insiders.logger") as mock_logger:
+        trades = fetch_trades(session, days=1)
+
+    assert len(trades) == 1
+    assert trades[0].ticker == "ATOM"
+    mock_logger.warning.assert_called_once()
+    assert "000333333326000001" in mock_logger.warning.call_args.args[1]

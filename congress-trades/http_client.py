@@ -1,45 +1,36 @@
 """
 http_client.py — Shared requests.Session with the descriptive User-Agent that
 disclosures-clerk.house.gov, efdsearch.senate.gov, and sec.gov all require for
-automated access, plus basic retry/backoff for transient failures.
+automated access, plus retry/backoff mounted transparently on the session.
 """
 
 from __future__ import annotations
 
 import os
-import time
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 DEFAULT_CONTACT = "set-CONGRESS_TRADES_CONTACT-env-var@example.com"
 MAX_RETRIES = 3
-BACKOFF_SECONDS = 1.5
+BACKOFF_FACTOR = 1.5
 
 
 def get_session() -> requests.Session:
-    """Build a requests.Session with the required identifying User-Agent."""
+    """Build a requests.Session with the required identifying User-Agent and
+    retry/backoff mounted for both http:// and https://."""
     contact = os.environ.get("CONGRESS_TRADES_CONTACT", DEFAULT_CONTACT)
     session = requests.Session()
     session.headers.update({"User-Agent": f"congress-trades {contact}"})
+
+    retry = Retry(
+        total=MAX_RETRIES,
+        backoff_factor=BACKOFF_FACTOR,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
     return session
-
-
-def fetch(session: requests.Session, url: str, method: str = "GET", **kwargs) -> requests.Response:
-    """GET/POST with retry+backoff on network errors and 5xx responses.
-
-    Raises the last exception (or the last response's HTTPError) if every
-    attempt fails.
-    """
-    last_exc: Exception | None = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = session.request(method, url, timeout=30, **kwargs)
-            if response.status_code >= 500:
-                response.raise_for_status()
-            return response
-        except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as exc:
-            last_exc = exc
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(BACKOFF_SECONDS * (attempt + 1))
-    assert last_exc is not None
-    raise last_exc

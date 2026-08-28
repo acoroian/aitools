@@ -32,15 +32,24 @@ def save_cache(source: str, envelope: dict[str, Any]) -> None:
     _cache_file(source).write_text(json.dumps(envelope, indent=2))
 
 
-def get_cached_trades(source: str) -> Optional[list[Trade]]:
-    """Return cached trades for a source if present and within TTL, else None."""
+def get_cached_trades(source: str, days: int) -> Optional[list[Trade]]:
+    """Return cached trades for a source if present, within TTL, and built for
+    a lookback window at least as wide as the one requested — else None.
+
+    A cache built for a narrower window (e.g. --days 7) must not silently
+    serve a wider request (e.g. --days 90): it may be missing filings from
+    the extra window. A cache built for an equal or wider window can still
+    serve a narrower request.
+    """
     envelope = load_cache(source)
     if not envelope:
         return None
     if time.time() - envelope.get("ts", 0) > CACHE_TTL:
         return None
+    if envelope.get("days", 0) < days:
+        return None
     return [Trade.from_dict(d) for d in envelope.get("trades", [])]
 
 
-def set_cached_trades(source: str, trades: list[Trade]) -> None:
-    save_cache(source, {"ts": time.time(), "trades": [t.to_dict() for t in trades]})
+def set_cached_trades(source: str, trades: list[Trade], days: int) -> None:
+    save_cache(source, {"ts": time.time(), "days": days, "trades": [t.to_dict() for t in trades]})

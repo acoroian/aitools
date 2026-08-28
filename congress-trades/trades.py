@@ -60,7 +60,7 @@ def run(days: int, sources: list[str], no_cache: bool, output_dir: Path, quiet: 
 
     for source in sources:
         if not no_cache:
-            cached = cache.get_cached_trades(source)
+            cached = cache.get_cached_trades(source, days)
             if cached is not None:
                 all_trades.extend(cached)
                 if not quiet:
@@ -70,7 +70,7 @@ def run(days: int, sources: list[str], no_cache: bool, output_dir: Path, quiet: 
         try:
             fetched = FETCHER_MODULES[source].fetch_trades(session, days=days)
             all_trades.extend(fetched)
-            cache.set_cached_trades(source, fetched)
+            cache.set_cached_trades(source, fetched, days)
             if not quiet:
                 print(f"{source}: {len(fetched)} trades")
         except Exception as exc:

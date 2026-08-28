@@ -34,7 +34,7 @@
 
 **Interfaces:**
 - Produces: `Trade` dataclass (`source: str`, `person: str`, `role: str`, `ticker: str`, `company: str`, `transaction_type: str`, `trade_date: date`, `filed_date: date`, `amount_low: float | None`, `amount_high: float | None`, `shares: float | None`, `price: float | None`, `link: str`), `Trade.to_dict() -> dict`, `Trade.from_dict(d: dict) -> Trade` (both used by `cache.py` in Task 2).
-- Produces: `http_client.get_session() -> requests.Session`, `http_client.fetch(session, url, method="GET", **kwargs) -> requests.Response` (retries transient failures; raises `requests.HTTPError` / `requests.ConnectionError` after 3 attempts).
+- Produces: `http_client.get_session() -> requests.Session` — the returned session has retry/backoff mounted transparently (via an `HTTPAdapter`/`Retry` policy), so Tasks 3-5 can call `session.get(...)` / `session.post(...)` directly (as their tests already mock) and still get retry coverage for real requests, satisfying the Global Constraint without a separate wrapper function every caller has to remember to use.
 
 - [ ] **Step 1: Create the project skeleton and requirements**
 
@@ -153,6 +153,7 @@ Expected: PASS
 `congress-trades/tests/test_http_client.py`:
 ```python
 import requests
+from requests.adapters import HTTPAdapter
 
 from http_client import get_session
 
@@ -167,6 +168,13 @@ def test_session_sets_descriptive_user_agent():
 def test_session_is_a_requests_session():
     session = get_session()
     assert isinstance(session, requests.Session)
+
+
+def test_session_has_retry_mounted_for_https():
+    session = get_session()
+    adapter = session.get_adapter("https://example.com")
+    assert isinstance(adapter, HTTPAdapter)
+    assert adapter.max_retries.total == 3
 ```
 
 - [ ] **Step 7: Run test to verify it fails**
@@ -176,58 +184,55 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'http_client'`
 
 - [ ] **Step 8: Implement `http_client.py`**
 
+Retry/backoff is mounted directly on the `Session` via an `HTTPAdapter` +
+`Retry` policy, not a separate wrapper function — so every caller that does
+plain `session.get(...)` / `session.post(...)` (Tasks 3-5 all call the
+session directly, matching their test mocks) gets retry coverage for real
+requests automatically, with no extra call to remember.
+
 ```python
 """
 http_client.py — Shared requests.Session with the descriptive User-Agent that
 disclosures-clerk.house.gov, efdsearch.senate.gov, and sec.gov all require for
-automated access, plus basic retry/backoff for transient failures.
+automated access, plus retry/backoff mounted transparently on the session.
 """
 
 from __future__ import annotations
 
 import os
-import time
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 DEFAULT_CONTACT = "set-CONGRESS_TRADES_CONTACT-env-var@example.com"
 MAX_RETRIES = 3
-BACKOFF_SECONDS = 1.5
+BACKOFF_FACTOR = 1.5
 
 
 def get_session() -> requests.Session:
-    """Build a requests.Session with the required identifying User-Agent."""
+    """Build a requests.Session with the required identifying User-Agent and
+    retry/backoff mounted for both http:// and https://."""
     contact = os.environ.get("CONGRESS_TRADES_CONTACT", DEFAULT_CONTACT)
     session = requests.Session()
     session.headers.update({"User-Agent": f"congress-trades {contact}"})
+
+    retry = Retry(
+        total=MAX_RETRIES,
+        backoff_factor=BACKOFF_FACTOR,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET", "POST"],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
     return session
-
-
-def fetch(session: requests.Session, url: str, method: str = "GET", **kwargs) -> requests.Response:
-    """GET/POST with retry+backoff on network errors and 5xx responses.
-
-    Raises the last exception (or the last response's HTTPError) if every
-    attempt fails.
-    """
-    last_exc: Exception | None = None
-    for attempt in range(MAX_RETRIES):
-        try:
-            response = session.request(method, url, timeout=30, **kwargs)
-            if response.status_code >= 500:
-                response.raise_for_status()
-            return response
-        except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as exc:
-            last_exc = exc
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(BACKOFF_SECONDS * (attempt + 1))
-    assert last_exc is not None
-    raise last_exc
 ```
 
 - [ ] **Step 9: Run test to verify it passes**
 
 Run: `cd congress-trades && python3 -m pytest tests/test_http_client.py -v`
-Expected: PASS
+Expected: PASS (3 passed)
 
 - [ ] **Step 10: Commit**
 
